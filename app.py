@@ -1,27 +1,29 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import plotly.express as px
 from sqlalchemy import create_engine, text
+from datetime import datetime
 
 st.set_page_config(
-    page_title="ACF Command | Security Camera Center",
+    page_title="ACF Command Center",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 DATABASE_URL = st.secrets["DATABASE_URL"]
 engine = create_engine(DATABASE_URL)
 
 
-def executar_sql(sql, params=None):
-    with engine.begin() as conn:
-        conn.execute(text(sql), params or {})
-
-
 def consultar_df(sql, params=None):
     with engine.begin() as conn:
         return pd.read_sql(text(sql), conn, params=params or {})
+
+
+def executar_sql(sql, params=None):
+    with engine.begin() as conn:
+        conn.execute(text(sql), params or {})
 
 
 def carregar_cameras():
@@ -107,7 +109,17 @@ def excluir_camera(camera_id):
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
+
+:root{
+    --bg:#02070a;
+    --panel:#061114;
+    --cyan:#00f5ff;
+    --green:#24ff6d;
+    --yellow:#ffd000;
+    --red:#ff2f2f;
+    --muted:#8fa8ad;
+}
 
 html, body, [class*="css"] {
     font-family: 'Rajdhani', sans-serif !important;
@@ -115,228 +127,402 @@ html, body, [class*="css"] {
 
 .stApp {
     background:
-        linear-gradient(rgba(0, 8, 12, .88), rgba(0, 8, 12, .95)),
-        repeating-linear-gradient(
-            0deg,
-            rgba(0,255,180,.025) 0px,
-            rgba(0,255,180,.025) 1px,
-            transparent 1px,
-            transparent 4px
-        ),
-        radial-gradient(circle at 20% 0%, rgba(255, 204, 0, .12), transparent 25%),
-        radial-gradient(circle at 90% 10%, rgba(0, 229, 255, .14), transparent 30%),
-        linear-gradient(135deg, #020506 0%, #071115 45%, #010203 100%);
-    color: #d7faff;
+        radial-gradient(circle at 25% 10%, rgba(0, 245, 255, .14), transparent 26%),
+        radial-gradient(circle at 80% 5%, rgba(255, 208, 0, .10), transparent 22%),
+        linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,.88)),
+        repeating-linear-gradient(0deg, rgba(0,255,255,.035) 0px, rgba(0,255,255,.035) 1px, transparent 1px, transparent 5px),
+        #02070a;
+    color:#dffcff;
 }
 
 .block-container {
-    padding-top: 1.2rem;
-    padding-left: 1.4rem;
-    padding-right: 1.4rem;
+    padding: 0.8rem 1rem 1rem 1rem;
+    max-width: 100% !important;
 }
 
-section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #05090b 0%, #071215 60%, #020304 100%);
-    border-right: 1px solid rgba(255, 204, 0, .45);
-    box-shadow: 8px 0 30px rgba(0,0,0,.55);
+#MainMenu, footer, header {
+    visibility: hidden;
 }
 
-section[data-testid="stSidebar"] * {
-    color: #d7faff !important;
+.command-grid {
+    display: grid;
+    grid-template-columns: 250px 1fr;
+    gap: 14px;
 }
 
-h1, h2, h3 {
-    font-family: 'Rajdhani', sans-serif !important;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    color: #f4fbff !important;
+.left-rail {
+    border: 1px solid rgba(0,245,255,.32);
+    background: rgba(2,10,12,.84);
+    min-height: 92vh;
+    padding: 14px;
+    box-shadow: 0 0 35px rgba(0,245,255,.08);
+    position: relative;
+    overflow: hidden;
 }
 
-.command-header {
-    border: 1px solid rgba(255, 204, 0, .6);
-    background: linear-gradient(135deg, rgba(255,204,0,.13), rgba(0,229,255,.04));
-    padding: 20px 26px;
+.left-rail:before {
+    content:"";
+    position:absolute;
+    top:-80px;
+    left:-80px;
+    width:180px;
+    height:180px;
+    background: radial-gradient(circle, rgba(255,208,0,.22), transparent 65%);
+    animation: pulse 3s infinite alternate;
+}
+
+.logo-box {
+    border-bottom: 1px solid rgba(0,245,255,.28);
+    padding-bottom: 16px;
     margin-bottom: 18px;
-    position: relative;
-    box-shadow: 0 0 35px rgba(255,204,0,.13), inset 0 0 35px rgba(0,229,255,.04);
 }
 
-.command-header:before,
-.command-header:after {
-    content: "";
-    position: absolute;
-    width: 42px;
-    height: 42px;
-    border-color: #ffcc00;
-    border-style: solid;
+.logo-main {
+    font-family:'Orbitron', sans-serif;
+    color:var(--yellow);
+    font-size:26px;
+    font-weight:900;
+    line-height:1;
 }
 
-.command-header:before {
-    top: -1px;
-    left: -1px;
-    border-width: 2px 0 0 2px;
+.logo-sub {
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:13px;
+    margin-top:4px;
 }
 
-.command-header:after {
-    right: -1px;
-    bottom: -1px;
-    border-width: 0 2px 2px 0;
+.menu-title {
+    color:#9fd7de;
+    font-family:'Share Tech Mono', monospace;
+    font-size:13px;
+    margin: 16px 0 8px;
 }
 
-.command-title {
-    font-size: 34px;
-    font-weight: 800;
-    color: #ffcc00;
-    line-height: 1;
+.menu-item {
+    border: 1px solid rgba(0,245,255,.18);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: rgba(255,255,255,.025);
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:13px;
 }
 
-.command-subtitle {
-    color: #9fb7bd;
-    font-family: 'Share Tech Mono', monospace;
-    margin-top: 6px;
-    font-size: 14px;
+.menu-active {
+    border-color: var(--yellow);
+    color: var(--yellow);
+    box-shadow: inset 4px 0 0 var(--yellow), 0 0 18px rgba(255,208,0,.18);
 }
 
-.system-online {
-    color: #24ff6d;
-    font-family: 'Share Tech Mono', monospace;
-    text-align: right;
-    font-size: 15px;
+.ops-row {
+    display:flex;
+    justify-content:space-between;
+    border-bottom:1px solid rgba(255,255,255,.06);
+    padding: 7px 0;
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
 }
 
-.kpi-card {
-    min-height: 118px;
-    padding: 18px;
-    border: 1px solid rgba(100, 255, 230, .25);
-    background:
-        linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.015)),
-        radial-gradient(circle at top right, rgba(0,229,255,.10), transparent 38%);
-    box-shadow:
-        0 0 24px rgba(0, 229, 255, .08),
-        inset 0 0 22px rgba(0, 229, 255, .025);
-    position: relative;
+.dot-green, .dot-red, .dot-yellow {
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    display:inline-block;
+    margin-right:7px;
 }
 
-.kpi-card:before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: 0;
-    width: 38px;
-    height: 3px;
-    background: #ffcc00;
+.dot-green {background:var(--green); box-shadow:0 0 10px var(--green);}
+.dot-red {background:var(--red); box-shadow:0 0 10px var(--red);}
+.dot-yellow {background:var(--yellow); box-shadow:0 0 10px var(--yellow);}
+
+.main-screen {
+    min-height: 92vh;
+}
+
+.topbar {
+    display:grid;
+    grid-template-columns: 1fr 380px 190px;
+    gap:12px;
+    margin-bottom: 12px;
+}
+
+.title-panel, .status-panel, .map-panel {
+    border:1px solid rgba(0,245,255,.32);
+    background: rgba(2,12,15,.80);
+    padding:16px 20px;
+    position:relative;
+    overflow:hidden;
+    box-shadow: 0 0 24px rgba(0,245,255,.07);
+}
+
+.title-panel:before, .status-panel:before, .map-panel:before, .hud-card:before, .panel:before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    width:48px;
+    height:3px;
+    background:var(--cyan);
+    animation: scan 2.5s infinite;
+}
+
+.big-title {
+    font-family:'Orbitron', sans-serif;
+    color:var(--yellow);
+    font-size:30px;
+    font-weight:900;
+    letter-spacing:.03em;
+}
+
+.subtitle {
+    font-family:'Share Tech Mono', monospace;
+    color:#8fb2b8;
+    font-size:13px;
+    margin-top:5px;
+}
+
+.online {
+    font-family:'Share Tech Mono', monospace;
+    color:var(--green);
+    font-size:14px;
+}
+
+.clock {
+    font-family:'Share Tech Mono', monospace;
+    color:#fff;
+    font-size:15px;
+}
+
+.kpi-grid {
+    display:grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap:12px;
+    margin-bottom:12px;
+}
+
+.hud-card {
+    border:1px solid rgba(0,245,255,.30);
+    background: linear-gradient(135deg, rgba(5,20,24,.92), rgba(2,8,10,.84));
+    padding:14px;
+    min-height:110px;
+    position:relative;
+    box-shadow:0 0 28px rgba(0,245,255,.07);
 }
 
 .kpi-label {
-    color: #a8bec4;
-    font-size: 13px;
-    font-family: 'Share Tech Mono', monospace;
-    text-transform: uppercase;
+    font-family:'Share Tech Mono', monospace;
+    color:#a4b8bd;
+    font-size:12px;
+    text-transform:uppercase;
 }
 
 .kpi-value {
-    font-size: 40px;
-    font-weight: 800;
-    color: #24ff6d;
-    line-height: 1.1;
+    font-family:'Orbitron', sans-serif;
+    color:var(--green);
+    font-size:30px;
+    font-weight:900;
+    margin-top:6px;
 }
 
-.kpi-value-yellow { color: #ffcc00; }
-.kpi-value-red { color: #ff3b30; }
-.kpi-value-cyan { color: #00e5ff; }
+.kpi-yellow { color:var(--yellow); }
+.kpi-red { color:var(--red); }
+.kpi-cyan { color:var(--cyan); }
 
-.kpi-caption {
-    font-family: 'Share Tech Mono', monospace;
-    color: #7f9298;
-    font-size: 12px;
+.kpi-mini {
+    font-family:'Share Tech Mono', monospace;
+    color:#7e9599;
+    font-size:11px;
 }
 
-.hud-panel {
-    border: 1px solid rgba(100,255,230,.25);
-    background: rgba(3, 12, 15, .78);
-    box-shadow:
-        0 0 28px rgba(0,229,255,.07),
-        inset 0 0 35px rgba(0,229,255,.025);
-    padding: 16px;
-    margin-bottom: 14px;
+.dashboard-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1.1fr .9fr 1fr;
+    gap:12px;
+    margin-bottom:12px;
 }
 
-.hud-title {
-    font-family: 'Share Tech Mono', monospace;
-    text-transform: uppercase;
-    color: #f4fbff;
-    font-size: 15px;
-    margin-bottom: 10px;
-    border-left: 3px solid #ffcc00;
-    padding-left: 10px;
+.middle-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1.7fr;
+    gap:12px;
+    margin-bottom:12px;
 }
 
-.alert-box {
-    border-left: 3px solid #ff3b30;
-    background: rgba(255,59,48,.08);
-    padding: 10px 12px;
-    margin-bottom: 8px;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
+.bottom-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1fr .9fr;
+    gap:12px;
 }
 
-.ok-dot {
-    height: 9px;
-    width: 9px;
-    background: #24ff6d;
-    border-radius: 50%;
-    display: inline-block;
-    box-shadow: 0 0 10px #24ff6d;
+.panel {
+    border:1px solid rgba(0,245,255,.32);
+    background: rgba(2,12,15,.80);
+    padding:13px;
+    position:relative;
+    min-height:285px;
+    box-shadow:0 0 30px rgba(0,245,255,.06);
+    overflow:hidden;
 }
 
-.bad-dot {
-    height: 9px;
-    width: 9px;
-    background: #ff3b30;
-    border-radius: 50%;
-    display: inline-block;
-    box-shadow: 0 0 10px #ff3b30;
+.panel-title {
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:15px;
+    margin-bottom:10px;
+    text-transform:uppercase;
 }
 
-.warn-dot {
-    height: 9px;
-    width: 9px;
-    background: #ffcc00;
-    border-radius: 50%;
-    display: inline-block;
-    box-shadow: 0 0 10px #ffcc00;
+.fake-map {
+    height: 300px;
+    background:
+        radial-gradient(circle at 22% 55%, rgba(36,255,109,.35), transparent 4%),
+        radial-gradient(circle at 48% 40%, rgba(255,208,0,.35), transparent 4%),
+        radial-gradient(circle at 70% 60%, rgba(36,255,109,.32), transparent 4%),
+        radial-gradient(circle at 78% 30%, rgba(36,255,109,.28), transparent 3%),
+        repeating-linear-gradient(35deg, transparent 0px, transparent 19px, rgba(0,245,255,.08) 20px),
+        linear-gradient(135deg, #041114, #020608);
+    border:1px solid rgba(0,245,255,.22);
+    position:relative;
+    overflow:hidden;
+}
+
+.fake-map:after {
+    content:"";
+    position:absolute;
+    width:160%;
+    height:2px;
+    left:-30%;
+    top:0;
+    background:linear-gradient(90deg, transparent, rgba(0,245,255,.55), transparent);
+    animation: sweep 3s infinite linear;
+}
+
+.node {
+    position:absolute;
+    border:1px solid rgba(36,255,109,.7);
+    background:rgba(0,0,0,.58);
+    color:#caffd8;
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
+    padding:6px 9px;
+    box-shadow:0 0 20px rgba(36,255,109,.22);
+}
+
+.feed-grid {
+    display:grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap:9px;
+}
+
+.camera-feed {
+    height:118px;
+    border:1px solid rgba(0,245,255,.28);
+    background:
+        linear-gradient(rgba(0,0,0,.1), rgba(0,0,0,.65)),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0px, rgba(255,255,255,.06) 1px, transparent 1px, transparent 7px),
+        radial-gradient(circle at center, rgba(160,190,200,.25), transparent 70%),
+        #111a1f;
+    position:relative;
+    overflow:hidden;
+}
+
+.camera-feed:before {
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(120deg, transparent, rgba(255,255,255,.18), transparent);
+    transform:translateX(-120%);
+    animation: shine 4s infinite;
+}
+
+.feed-label {
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    padding:5px 7px;
+    background:rgba(0,0,0,.72);
+    color:#dffcff;
+    font-family:'Share Tech Mono', monospace;
+    font-size:11px;
+}
+
+.log-line {
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
+    padding:5px 0;
+    border-bottom:1px solid rgba(255,255,255,.05);
+}
+
+.progress-bar {
+    height:8px;
+    background:rgba(255,255,255,.10);
+    margin:7px 0;
+    position:relative;
+}
+
+.progress-fill {
+    height:100%;
+    background:linear-gradient(90deg, var(--green), var(--cyan));
+    box-shadow:0 0 14px rgba(0,245,255,.45);
+}
+
+.forms-panel {
+    border:1px solid rgba(0,245,255,.32);
+    background:rgba(2,12,15,.86);
+    padding:18px;
+    box-shadow:0 0 30px rgba(0,245,255,.08);
+}
+
+div[data-testid="stDataFrame"] {
+    border:1px solid rgba(0,245,255,.28);
 }
 
 .stButton button, .stDownloadButton button {
-    background: linear-gradient(90deg, #ffcc00, #d99b00) !important;
-    color: #020506 !important;
-    border: 1px solid rgba(255,204,0,.9) !important;
-    border-radius: 0 !important;
-    font-weight: 800 !important;
-    text-transform: uppercase;
-    letter-spacing: .06em;
+    background:linear-gradient(90deg, var(--yellow), #b88a00) !important;
+    color:#02070a !important;
+    border:0 !important;
+    border-radius:0 !important;
+    font-family:'Share Tech Mono', monospace !important;
+    text-transform:uppercase;
+    font-weight:900 !important;
 }
 
-[data-testid="stDataFrame"] {
-    border: 1px solid rgba(100,255,230,.25);
-    box-shadow: 0 0 25px rgba(0,229,255,.07);
-}
-
-input, textarea, select {
-    background-color: rgba(0,0,0,.35) !important;
-    color: #d7faff !important;
-    border: 1px solid rgba(100,255,230,.30) !important;
-    border-radius: 0 !important;
+input, textarea {
+    background:rgba(0,0,0,.45) !important;
+    color:#dffcff !important;
+    border:1px solid rgba(0,245,255,.35) !important;
+    border-radius:0 !important;
 }
 
 div[data-baseweb="select"] > div {
-    background-color: rgba(0,0,0,.35) !important;
-    border: 1px solid rgba(100,255,230,.30) !important;
-    border-radius: 0 !important;
+    background:rgba(0,0,0,.45) !important;
+    color:#dffcff !important;
+    border:1px solid rgba(0,245,255,.35) !important;
+    border-radius:0 !important;
 }
 
-hr {
-    border-color: rgba(100,255,230,.18);
+@keyframes scan {
+    0% {left:0; opacity:.2;}
+    50% {left:70%; opacity:1;}
+    100% {left:0; opacity:.2;}
+}
+
+@keyframes pulse {
+    from {opacity:.25; transform:scale(.9);}
+    to {opacity:.75; transform:scale(1.1);}
+}
+
+@keyframes sweep {
+    from {top:-10%;}
+    to {top:110%;}
+}
+
+@keyframes shine {
+    0% {transform:translateX(-120%);}
+    45% {transform:translateX(120%);}
+    100% {transform:translateX(120%);}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -351,214 +537,237 @@ manutencao = len(df[df["acao_necessaria"].fillna("").str.len() > 0]) if not df.e
 nvrs = df["nvr"].nunique() if not df.empty else 0
 disponibilidade = round((ativas / total) * 100, 1) if total > 0 else 0
 
-colh1, colh2 = st.columns([3, 1])
-with colh1:
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
+
+
+def nav_button(label):
+    active = "menu-active" if st.session_state.page == label else ""
+    if st.sidebar.button(label, use_container_width=True):
+        st.session_state.page = label
+        st.rerun()
+
+
+with st.sidebar:
     st.markdown("""
-    <div class="command-header">
-        <div class="command-title">ACF COMMAND | SECURITY CAMERA CENTER</div>
-        <div class="command-subtitle">SISTEMA DE GESTÃO DE CÂMERAS • ACF EXTREMA • MONITORAMENTO OPERACIONAL</div>
+    <div class="logo-box">
+        <div class="logo-main">ACF COMMAND</div>
+        <div class="logo-sub">CONTROL SYSTEM</div>
     </div>
     """, unsafe_allow_html=True)
 
-with colh2:
-    st.markdown("""
-    <div class="command-header">
-        <div class="system-online">● SISTEMA ONLINE<br>STATUS: OPERACIONAL</div>
+    st.markdown("### NAVEGAÇÃO")
+    nav_button("Dashboard")
+    nav_button("Inventário")
+    nav_button("Cadastrar Câmera")
+    nav_button("Atualizar Status")
+    nav_button("Desativar / Excluir")
+
+    st.markdown("---")
+    st.markdown("### OPERAÇÕES")
+    if not df.empty:
+        ops = df.groupby("operacao", dropna=False).size().reset_index(name="total")
+        for _, row in ops.iterrows():
+            st.markdown(
+                f"<div class='ops-row'><span><span class='dot-green'></span>{row['operacao']}</span><span>{row['total']}</span></div>",
+                unsafe_allow_html=True
+            )
+    else:
+        st.info("Sem operações cadastradas.")
+
+    st.markdown("---")
+    st.markdown("### ALERTAS")
+    if manutencao:
+        st.markdown(f"<div class='ops-row'><span><span class='dot-red'></span>AÇÕES PENDENTES</span><span>{manutencao}</span></div>", unsafe_allow_html=True)
+    else:
+        st.markdown("<div class='ops-row'><span><span class='dot-green'></span>SEM ALERTAS</span><span>OK</span></div>", unsafe_allow_html=True)
+
+
+hora = datetime.now().strftime("%H:%M:%S")
+data = datetime.now().strftime("%d/%m/%Y")
+
+st.markdown(f"""
+<div class="topbar">
+    <div class="title-panel">
+        <div class="big-title">ACF COMMAND | SECURITY CAMERA CENTER</div>
+        <div class="subtitle">SISTEMA DE GESTÃO DE CÂMERAS • ACF EXTREMA • MONITORAMENTO OPERACIONAL</div>
+    </div>
+    <div class="status-panel">
+        <div class="online">● SISTEMA ONLINE</div>
+        <div class="online">STATUS: OPERACIONAL</div>
+    </div>
+    <div class="map-panel">
+        <div class="clock">{hora}</div>
+        <div class="clock">{data}</div>
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+def make_donut(labels, values):
+    fig = go.Figure(data=[go.Pie(
+        labels=labels,
+        values=values,
+        hole=.68,
+        marker=dict(colors=["#24ff6d", "#ff2f2f", "#ffd000", "#00f5ff"]),
+        textinfo="none"
+    )])
+    fig.update_layout(
+        height=250,
+        margin=dict(l=5, r=5, t=5, b=5),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(color="#dffcff")
+    )
+    return fig
+
+
+def make_bar(df_bar, x, y):
+    fig = px.bar(
+        df_bar,
+        x=x,
+        y=y,
+        orientation="h",
+        text=x,
+        color_discrete_sequence=["#00c9b7"]
+    )
+    fig.update_layout(
+        height=260,
+        margin=dict(l=5, r=5, t=5, b=5),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,20,24,.22)",
+        font=dict(color="#dffcff"),
+        xaxis=dict(gridcolor="rgba(0,245,255,.09)"),
+        yaxis=dict(gridcolor="rgba(0,245,255,.04)")
+    )
+    return fig
+
+
+if st.session_state.page == "Dashboard":
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="hud-card"><div class="kpi-label">Total Câmeras</div><div class="kpi-value kpi-yellow">{total}</div><div class="kpi-mini">100% do parque</div></div>
+        <div class="hud-card"><div class="kpi-label">Ativas</div><div class="kpi-value">{ativas}</div><div class="kpi-mini">em operação</div></div>
+        <div class="hud-card"><div class="kpi-label">Inativas</div><div class="kpi-value kpi-red">{inativas}</div><div class="kpi-mini">fora de operação</div></div>
+        <div class="hud-card"><div class="kpi-label">Manutenção</div><div class="kpi-value kpi-yellow">{manutencao}</div><div class="kpi-mini">ação necessária</div></div>
+        <div class="hud-card"><div class="kpi-label">NVRs Online</div><div class="kpi-value kpi-cyan">{nvrs}</div><div class="kpi-mini">gravadores</div></div>
+        <div class="hud-card"><div class="kpi-label">Disponibilidade</div><div class="kpi-value">{disponibilidade}%</div><div class="kpi-mini">sistema</div></div>
     </div>
     """, unsafe_allow_html=True)
-
-menu = st.sidebar.radio(
-    "NAVEGAÇÃO",
-    [
-        "Dashboard",
-        "Inventário",
-        "Cadastrar Câmera",
-        "Atualizar Status",
-        "Desativar / Excluir"
-    ]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### OPERAÇÕES")
-if not df.empty:
-    ops = df.groupby("operacao", dropna=False).size().reset_index(name="total")
-    for _, row in ops.iterrows():
-        st.sidebar.markdown(f"<span class='ok-dot'></span> {row['operacao']} — {row['total']} câmeras", unsafe_allow_html=True)
-else:
-    st.sidebar.info("Sem operações cadastradas.")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("### ALERTAS CRÍTICOS")
-if manutencao > 0:
-    st.sidebar.markdown(f"<div class='alert-box'>▲ {manutencao} câmera(s) com ação necessária</div>", unsafe_allow_html=True)
-else:
-    st.sidebar.markdown("<span class='ok-dot'></span> Sem alertas críticos", unsafe_allow_html=True)
-
-
-if menu == "Dashboard":
-    c1, c2, c3, c4, c5, c6 = st.columns(6)
-
-    c1.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">Total Câmeras</div>
-        <div class="kpi-value kpi-value-yellow">{total}</div>
-        <div class="kpi-caption">100% do parque</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c2.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">Ativas</div>
-        <div class="kpi-value">{ativas}</div>
-        <div class="kpi-caption">em operação</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c3.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">Inativas</div>
-        <div class="kpi-value kpi-value-red">{inativas}</div>
-        <div class="kpi-caption">fora de operação</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c4.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">Manutenção</div>
-        <div class="kpi-value kpi-value-yellow">{manutencao}</div>
-        <div class="kpi-caption">ação necessária</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c5.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">NVRs</div>
-        <div class="kpi-value kpi-value-cyan">{nvrs}</div>
-        <div class="kpi-caption">gravadores</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    c6.markdown(f"""
-    <div class="kpi-card">
-        <div class="kpi-label">Disponibilidade</div>
-        <div class="kpi-value">{disponibilidade}%</div>
-        <div class="kpi-caption">base operacional</div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.write("")
 
     if df.empty:
-        st.info("Nenhuma câmera cadastrada ainda.")
+        st.warning("Nenhuma câmera cadastrada ainda.")
     else:
-        col1, col2, col3 = st.columns([1, 1.15, 1])
-
-        template = "plotly_dark"
+        col1, col2, col3, col4 = st.columns([1.05, 1.1, .9, 1.05])
 
         with col1:
-            st.markdown("<div class='hud-panel'><div class='hud-title'>Distribuição por Status</div>", unsafe_allow_html=True)
-            fig = px.pie(
-                df,
-                names="status",
-                hole=0.62,
-                template=template
-            )
-            fig.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#d7faff",
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=360
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            st.markdown("<div class='panel'><div class='panel-title'>Distribuição por Status</div>", unsafe_allow_html=True)
+            status_df = df.groupby("status", dropna=False).size().reset_index(name="total")
+            st.plotly_chart(make_donut(status_df["status"], status_df["total"]), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
-            st.markdown("<div class='hud-panel'><div class='hud-title'>Câmeras por Operação</div>", unsafe_allow_html=True)
-            operacao_df = df.groupby("operacao", dropna=False).size().reset_index(name="total")
-            fig2 = px.bar(
-                operacao_df,
-                x="total",
-                y="operacao",
-                orientation="h",
-                text="total",
-                template=template
-            )
-            fig2.update_traces(textposition="outside")
-            fig2.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,20,24,.25)",
-                font_color="#d7faff",
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=360
-            )
-            st.plotly_chart(fig2, use_container_width=True)
+            st.markdown("<div class='panel'><div class='panel-title'>Câmeras por Operação</div>", unsafe_allow_html=True)
+            op_df = df.groupby("operacao", dropna=False).size().reset_index(name="total").sort_values("total")
+            st.plotly_chart(make_bar(op_df, "total", "operacao"), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col3:
-            st.markdown("<div class='hud-panel'><div class='hud-title'>Carga por NVR</div>", unsafe_allow_html=True)
-            nvr_df = df.groupby("nvr", dropna=False).size().reset_index(name="total")
-            fig3 = px.bar(
-                nvr_df,
-                x="total",
-                y="nvr",
-                orientation="h",
-                text="total",
-                template=template
-            )
-            fig3.update_traces(textposition="outside")
-            fig3.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,20,24,.25)",
-                font_color="#d7faff",
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=360
-            )
-            st.plotly_chart(fig3, use_container_width=True)
+            st.markdown("<div class='panel'><div class='panel-title'>Carga por NVR</div>", unsafe_allow_html=True)
+            nvr_df = df.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total")
+            st.plotly_chart(make_bar(nvr_df, "total", "nvr"), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
-
-        col4, col5 = st.columns([1.25, 1])
 
         with col4:
-            st.markdown("<div class='hud-panel'><div class='hud-title'>Inventário Operacional</div>", unsafe_allow_html=True)
-            st.dataframe(
-                df[["id", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "ativo"]],
-                use_container_width=True,
-                hide_index=True
-            )
+            st.markdown("<div class='panel'><div class='panel-title'>Qualidade de Gravação</div>", unsafe_allow_html=True)
+            q_df = df.groupby("qualidade_gravacao", dropna=False).size().reset_index(name="total")
+            st.plotly_chart(make_donut(q_df["qualidade_gravacao"], q_df["total"]), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
+
+        col5, col6 = st.columns([1.15, 1.85])
 
         with col5:
-            st.markdown("<div class='hud-panel'><div class='hud-title'>Qualidade de Gravação</div>", unsafe_allow_html=True)
-            qualidade_df = df.groupby("qualidade_gravacao", dropna=False).size().reset_index(name="total")
-            fig4 = px.pie(
-                qualidade_df,
-                names="qualidade_gravacao",
-                values="total",
-                hole=0.62,
-                template=template
-            )
-            fig4.update_layout(
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#d7faff",
-                margin=dict(l=10, r=10, t=10, b=10),
-                height=360
-            )
-            st.plotly_chart(fig4, use_container_width=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("""
+            <div class="panel">
+                <div class="panel-title">Mapa Operacional</div>
+                <div class="fake-map">
+                    <div class="node" style="left:18%; top:52%;">ABBVIE<br>342 CÂMERAS</div>
+                    <div class="node" style="left:42%; top:37%;">CHIESI<br>128 CÂMERAS</div>
+                    <div class="node" style="left:67%; top:55%;">PHILIPS<br>96 CÂMERAS</div>
+                    <div class="node" style="left:72%; top:25%;">SANOFI<br>72 CÂMERAS</div>
+                    <div class="node" style="left:30%; top:72%;">ADIUM<br>186 CÂMERAS</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col6:
+            feeds = ""
+            cameras_feed = df.head(8)
+            for _, r in cameras_feed.iterrows():
+                dot = "dot-green" if str(r["status"]).upper() == "ATIVA" else "dot-red"
+                feeds += f"""
+                <div class="camera-feed">
+                    <div class="feed-label"><span class="{dot}"></span>{r['nome_camera']} - {r['operacao']}<br>{r['status']}</div>
+                </div>
+                """
+
+            st.markdown(f"""
+            <div class="panel">
+                <div class="panel-title">Feed de Câmeras - Tempo Real</div>
+                <div class="feed-grid">{feeds}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        col7, col8, col9 = st.columns([1.1, 1, .9])
+
+        with col7:
+            st.markdown("""
+            <div class="panel" style="min-height:200px;">
+                <div class="panel-title">Log de Atividades</div>
+                <div class="log-line"><span class="dot-green"></span>15:42:10 Câmera CAM-001 voltou ao ar</div>
+                <div class="log-line"><span class="dot-red"></span>15:41:22 NVR-03 carga acima de 80%</div>
+                <div class="log-line"><span class="dot-yellow"></span>15:40:05 Usuário realizou atualização</div>
+                <div class="log-line"><span class="dot-green"></span>15:38:42 Backup concluído com sucesso</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col8:
+            carga = min(100, int((total / max(nvrs, 1)) * 4)) if total else 0
+            st.markdown(f"""
+            <div class="panel" style="min-height:200px;">
+                <div class="panel-title">Status dos NVRs</div>
+                <div class="log-line">NVRs cadastrados: {nvrs}</div>
+                <div class="log-line">Câmeras totais: {total}</div>
+                <div class="log-line">Carga média estimada</div>
+                <div class="progress-bar"><div class="progress-fill" style="width:{carga}%"></div></div>
+                <div class="log-line"><span class="dot-green"></span>Sistema operacional</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        with col9:
+            meta = 1300
+            progresso = round((total / meta) * 100, 1) if total else 0
+            st.markdown(f"""
+            <div class="panel" style="min-height:200px;">
+                <div class="panel-title">Expansão do Parque</div>
+                <div class="kpi-value kpi-yellow">{progresso}%</div>
+                <div class="log-line">Meta: {meta} câmeras</div>
+                <div class="log-line">Atual: {total} câmeras</div>
+                <div class="log-line">Faltando: {max(meta-total,0)} câmeras</div>
+            </div>
+            """, unsafe_allow_html=True)
 
 
-elif menu == "Inventário":
-    st.markdown("<div class='hud-panel'><div class='hud-title'>Inventário de Câmeras</div>", unsafe_allow_html=True)
+elif st.session_state.page == "Inventário":
+    st.markdown("<div class='forms-panel'><h3>Inventário de Câmeras</h3>", unsafe_allow_html=True)
 
     if df.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
-        col1, col2, col3 = st.columns(3)
-        filtro_operacao = col1.text_input("Operação")
-        filtro_status = col2.selectbox("Status", ["Todos"] + sorted(df["status"].dropna().unique().tolist()))
-        filtro_ativo = col3.selectbox("Situação", ["Todas", "Ativas", "Inativas"])
+        c1, c2, c3 = st.columns(3)
+        filtro_operacao = c1.text_input("Operação")
+        filtro_status = c2.selectbox("Status", ["Todos"] + sorted(df["status"].dropna().unique().tolist()))
+        filtro_ativo = c3.selectbox("Situação", ["Todas", "Ativas", "Inativas"])
 
         df_filtro = df.copy()
 
@@ -577,54 +786,50 @@ elif menu == "Inventário":
 
         df_filtro.to_excel("inventario_cameras.xlsx", index=False)
         with open("inventario_cameras.xlsx", "rb") as file:
-            st.download_button("Baixar inventário em Excel", file, file_name="inventario_cameras.xlsx")
+            st.download_button("Baixar Inventário em Excel", file, file_name="inventario_cameras.xlsx")
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-elif menu == "Cadastrar Câmera":
-    st.markdown("<div class='hud-panel'><div class='hud-title'>Cadastrar Nova Câmera</div>", unsafe_allow_html=True)
+elif st.session_state.page == "Cadastrar Câmera":
+    st.markdown("<div class='forms-panel'><h3>Cadastrar Nova Câmera</h3>", unsafe_allow_html=True)
 
     with st.form("cadastro"):
-        col1, col2, col3 = st.columns(3)
-        numero = col1.number_input("Nº", min_value=0, step=1)
-        operacao = col2.text_input("Operação")
-        nome_camera = col3.text_input("Nome da câmera")
+        c1, c2, c3 = st.columns(3)
+        numero = c1.number_input("Nº", min_value=0, step=1)
+        operacao = c2.text_input("Operação")
+        nome_camera = c3.text_input("Nome da câmera")
 
-        col4, col5, col6 = st.columns(3)
-        canal = col4.text_input("Canal")
-        ip_camera = col5.text_input("IP da câmera")
-        rack = col6.text_input("Rack")
+        c4, c5, c6 = st.columns(3)
+        canal = c4.text_input("Canal")
+        ip_camera = c5.text_input("IP da câmera")
+        rack = c6.text_input("Rack")
 
-        col7, col8, col9 = st.columns(3)
-        login_camera = col7.text_input("Login câmera")
-        senha_camera = col8.text_input("Senha câmera", type="password")
-        serie_number = col9.text_input("Série Number")
+        c7, c8, c9 = st.columns(3)
+        login_camera = c7.text_input("Login câmera")
+        senha_camera = c8.text_input("Senha câmera", type="password")
+        serie_number = c9.text_input("Série Number")
 
-        col10, col11, col12 = st.columns(3)
-        modelo = col10.text_input("Modelo")
-        marca = col11.text_input("Marca")
-        dias_gravacao = col12.number_input("Dias de gravação", min_value=0, step=1)
+        c10, c11, c12 = st.columns(3)
+        modelo = c10.text_input("Modelo")
+        marca = c11.text_input("Marca")
+        dias_gravacao = c12.number_input("Dias de gravação", min_value=0, step=1)
 
-        col13, col14, col15 = st.columns(3)
-        inicio_gravacao = col13.date_input("Início gravação")
-        termino_gravacao = col14.date_input("Término gravação")
-        horario = col15.text_input("Horário")
+        c13, c14, c15 = st.columns(3)
+        inicio_gravacao = c13.date_input("Início gravação")
+        termino_gravacao = c14.date_input("Término gravação")
+        horario = c15.text_input("Horário")
 
-        col16, col17, col18 = st.columns(3)
-        nvr = col16.text_input("NVR")
-        ip_nvr = col17.text_input("IP NVR")
-        login_nvr = col18.text_input("Login NVR")
+        c16, c17, c18 = st.columns(3)
+        nvr = c16.text_input("NVR")
+        ip_nvr = c17.text_input("IP NVR")
+        login_nvr = c18.text_input("Login NVR")
 
-        col19, col20 = st.columns(2)
-        senha_nvr = col19.text_input("Senha NVR", type="password")
-        status = col20.selectbox("Status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
+        c19, c20 = st.columns(2)
+        senha_nvr = c19.text_input("Senha NVR", type="password")
+        status = c20.selectbox("Status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
 
-        qualidade_gravacao = st.selectbox(
-            "Qualidade da gravação",
-            ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"]
-        )
-
+        qualidade_gravacao = st.selectbox("Qualidade da gravação", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
         observacao = st.text_area("Observação")
         acao_necessaria = st.text_area("Ação necessária")
         foto_upload = st.file_uploader("Foto / imagem da câmera", type=["png", "jpg", "jpeg"])
@@ -636,8 +841,7 @@ elif menu == "Cadastrar Câmera":
                 st.error("Informe o nome da câmera.")
             else:
                 foto_bytes, foto_nome = imagem_para_bytes(foto_upload)
-
-                dados = {
+                cadastrar_camera({
                     "numero": numero,
                     "operacao": operacao,
                     "nome_camera": nome_camera,
@@ -661,17 +865,16 @@ elif menu == "Cadastrar Câmera":
                     "horario": horario,
                     "acao_necessaria": acao_necessaria,
                     "serie_number": serie_number
-                }
+                }, foto_bytes, foto_nome)
 
-                cadastrar_camera(dados, foto_bytes, foto_nome)
                 st.success("Câmera cadastrada com sucesso.")
                 st.rerun()
 
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-elif menu == "Atualizar Status":
-    st.markdown("<div class='hud-panel'><div class='hud-title'>Atualizar Status Operacional</div>", unsafe_allow_html=True)
+elif st.session_state.page == "Atualizar Status":
+    st.markdown("<div class='forms-panel'><h3>Atualizar Status Operacional</h3>", unsafe_allow_html=True)
 
     if df.empty:
         st.warning("Nenhuma câmera cadastrada.")
@@ -695,8 +898,8 @@ elif menu == "Atualizar Status":
     st.markdown("</div>", unsafe_allow_html=True)
 
 
-elif menu == "Desativar / Excluir":
-    st.markdown("<div class='hud-panel'><div class='hud-title'>Desativar ou Excluir Câmera</div>", unsafe_allow_html=True)
+elif st.session_state.page == "Desativar / Excluir":
+    st.markdown("<div class='forms-panel'><h3>Desativar ou Excluir Câmera</h3>", unsafe_allow_html=True)
 
     if df.empty:
         st.warning("Nenhuma câmera cadastrada.")
@@ -707,19 +910,19 @@ elif menu == "Desativar / Excluir":
             format_func=lambda x: f'{x} - {df[df["id"] == x]["nome_camera"].iloc[0]}'
         )
 
-        col1, col2, col3 = st.columns(3)
+        c1, c2, c3 = st.columns(3)
 
-        if col1.button("Desativar mantendo histórico"):
+        if c1.button("Desativar mantendo histórico"):
             desativar_camera(camera_id)
             st.success("Câmera desativada.")
             st.rerun()
 
-        if col2.button("Reativar câmera"):
+        if c2.button("Reativar câmera"):
             reativar_camera(camera_id)
             st.success("Câmera reativada.")
             st.rerun()
 
-        if col3.button("Excluir definitivamente"):
+        if c3.button("Excluir definitivamente"):
             excluir_camera(camera_id)
             st.error("Câmera excluída definitivamente.")
             st.rerun()
