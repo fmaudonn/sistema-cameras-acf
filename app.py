@@ -4,7 +4,7 @@ import plotly.express as px
 from sqlalchemy import create_engine, text
 
 st.set_page_config(
-    page_title="Security Camera Command Center",
+    page_title="DHL Security Camera Command Center",
     page_icon="📷",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -107,19 +107,19 @@ def excluir_camera(camera_id):
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
 .stApp {
-    background: #f4f6f9;
+    background: #f5f6f8;
     color: #1f2937;
 }
 
 .block-container {
-    padding-top: 1.5rem;
+    padding-top: 1.4rem;
     padding-left: 2rem;
     padding-right: 2rem;
 }
@@ -127,45 +127,62 @@ html, body, [class*="css"] {
 section[data-testid="stSidebar"] {
     background: #ffffff;
     border-right: 1px solid #e5e7eb;
-    box-shadow: 4px 0 20px rgba(0,0,0,0.04);
+    box-shadow: 4px 0 20px rgba(0,0,0,0.05);
 }
 
 section[data-testid="stSidebar"] * {
-    color: #1f2937 !important;
+    color: #2b2b2b !important;
 }
 
 h1, h2, h3 {
-    color: #111827 !important;
+    color: #2b2b2b !important;
     letter-spacing: -0.03em;
 }
 
 .hero {
     padding: 32px;
-    border-radius: 24px;
-    background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
-    border: 1px solid #e5e7eb;
-    box-shadow: 0 16px 40px rgba(0,0,0,0.06);
+    border-radius: 22px;
+    background: linear-gradient(135deg, #ffcc00 0%, #ffe066 100%);
+    border: 1px solid #f0bd00;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.08);
     margin-bottom: 24px;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero:before {
+    content: "";
+    position: absolute;
+    right: -80px;
+    top: -80px;
+    width: 240px;
+    height: 240px;
+    background: rgba(212, 5, 17, 0.12);
+    border-radius: 50%;
 }
 
 .hero h1 {
     font-size: 40px;
     margin-bottom: 8px;
-    color: #111827 !important;
-    font-weight: 800;
+    color: #d40511 !important;
+    font-weight: 900;
+    position: relative;
 }
 
 .hero p {
-    color: #6b7280;
+    color: #2b2b2b;
     font-size: 15px;
+    font-weight: 600;
+    position: relative;
 }
 
 .kpi {
     padding: 24px;
-    border-radius: 22px;
+    border-radius: 20px;
     background: #ffffff;
     border: 1px solid #e5e7eb;
-    box-shadow: 0 10px 28px rgba(0,0,0,0.05);
+    border-left: 7px solid #ffcc00;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.06);
 }
 
 .kpi span {
@@ -173,40 +190,41 @@ h1, h2, h3 {
     font-size: 12px;
     text-transform: uppercase;
     letter-spacing: .12em;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 .kpi strong {
     display: block;
-    color: #111827;
+    color: #d40511;
     font-size: 36px;
     margin-top: 8px;
-    font-weight: 800;
+    font-weight: 900;
 }
 
 .kpi small {
     color: #6b7280;
+    font-weight: 600;
 }
 
 .stButton button {
     border-radius: 12px;
     background: #ffcc00;
-    color: #111827;
+    color: #2b2b2b;
     border: 0;
-    font-weight: 800;
+    font-weight: 900;
 }
 
 .stButton button:hover {
     background: #eab308;
-    color: #111827;
+    color: #2b2b2b;
 }
 
 .stDownloadButton button {
     border-radius: 12px;
-    background: #111827;
+    background: #d40511;
     color: #ffffff;
     border: 0;
-    font-weight: 700;
+    font-weight: 800;
 }
 
 [data-testid="stDataFrame"] {
@@ -235,27 +253,28 @@ df = carregar_cameras()
 
 st.markdown("""
 <div class="hero">
-    <h1>Security Camera Command Center</h1>
-    <p>Sistema corporativo para gestão do parque de CFTV, inventário técnico, disponibilidade, NVRs, gravações e pendências operacionais.</p>
+    <h1>DHL Security Camera Command Center</h1>
+    <p>ACF Extrema • Gestão corporativa do parque de CFTV, inventário técnico, disponibilidade, NVRs, gravações e pendências operacionais.</p>
 </div>
 """, unsafe_allow_html=True)
 
 menu = st.sidebar.radio(
     "Navegação",
     [
-        "Dashboard Executivo",
-        "Inventário",
-        "Cadastrar Câmera",
-        "Atualizar Status",
-        "Desativar / Excluir"
+        "📊 Dashboard Executivo",
+        "📷 Inventário",
+        "➕ Cadastrar Câmera",
+        "⚙️ Atualizar Status",
+        "🗑️ Desativar / Excluir"
     ]
 )
 
-if menu == "Dashboard Executivo":
+if menu == "📊 Dashboard Executivo":
     total = len(df)
     ativas = len(df[(df["ativo"] == True) & (df["status"].fillna("").str.upper() == "ATIVA")]) if not df.empty else 0
     inativas = len(df[df["ativo"] == False]) if not df.empty else 0
     manutencao = len(df[df["acao_necessaria"].fillna("").str.len() > 0]) if not df.empty else 0
+    sem_gravacao = len(df[df["status"].fillna("").str.upper().str.contains("SEM GRAVAÇÃO", na=False)]) if not df.empty else 0
     disponibilidade = round((ativas / total) * 100, 1) if total > 0 else 0
 
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -263,17 +282,18 @@ if menu == "Dashboard Executivo":
     c1.markdown(f'<div class="kpi"><span>Total</span><strong>{total}</strong><small>Câmeras cadastradas</small></div>', unsafe_allow_html=True)
     c2.markdown(f'<div class="kpi"><span>Ativas</span><strong>{ativas}</strong><small>Em operação</small></div>', unsafe_allow_html=True)
     c3.markdown(f'<div class="kpi"><span>Disponibilidade</span><strong>{disponibilidade}%</strong><small>Base operacional</small></div>', unsafe_allow_html=True)
-    c4.markdown(f'<div class="kpi"><span>Inativas</span><strong>{inativas}</strong><small>Desativadas</small></div>', unsafe_allow_html=True)
-    c5.markdown(f'<div class="kpi"><span>Ação</span><strong>{manutencao}</strong><small>Correção pendente</small></div>', unsafe_allow_html=True)
+    c4.markdown(f'<div class="kpi"><span>Sem gravação</span><strong>{sem_gravacao}</strong><small>Falha crítica</small></div>', unsafe_allow_html=True)
+    c5.markdown(f'<div class="kpi"><span>Pendências</span><strong>{manutencao}</strong><small>Ação necessária</small></div>', unsafe_allow_html=True)
 
     st.divider()
 
     if df.empty:
         st.info("Nenhuma câmera cadastrada ainda.")
     else:
-        col1, col2 = st.columns(2)
-
         template = "plotly_white"
+        cores_dhl = ["#ffcc00", "#d40511", "#2b2b2b", "#8c8c8c", "#f7d154"]
+
+        col1, col2 = st.columns(2)
 
         with col1:
             fig = px.pie(
@@ -281,12 +301,13 @@ if menu == "Dashboard Executivo":
                 names="status",
                 title="Distribuição por Status",
                 hole=0.55,
-                template=template
+                template=template,
+                color_discrete_sequence=cores_dhl
             )
             fig.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#111827"
+                font_color="#2b2b2b"
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -298,13 +319,14 @@ if menu == "Dashboard Executivo":
                 y="total",
                 title="Câmeras por Operação",
                 template=template,
-                text="total"
+                text="total",
+                color_discrete_sequence=["#ffcc00"]
             )
-            fig2.update_traces(textposition="outside")
+            fig2.update_traces(textposition="outside", marker_line_color="#d40511", marker_line_width=1)
             fig2.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="#ffffff",
-                font_color="#111827"
+                font_color="#2b2b2b"
             )
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -315,18 +337,19 @@ if menu == "Dashboard Executivo":
             y="total",
             title="Carga Operacional por NVR",
             template=template,
-            text="total"
+            text="total",
+            color_discrete_sequence=["#d40511"]
         )
         fig3.update_traces(textposition="outside")
         fig3.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="#ffffff",
-            font_color="#111827"
+            font_color="#2b2b2b"
         )
         st.plotly_chart(fig3, use_container_width=True)
 
 
-elif menu == "Inventário":
+elif menu == "📷 Inventário":
     st.subheader("Inventário de Câmeras")
 
     if df.empty:
@@ -361,7 +384,7 @@ elif menu == "Inventário":
             )
 
 
-elif menu == "Cadastrar Câmera":
+elif menu == "➕ Cadastrar Câmera":
     st.subheader("Cadastrar Nova Câmera")
 
     with st.form("cadastro"):
@@ -447,7 +470,7 @@ elif menu == "Cadastrar Câmera":
                 st.rerun()
 
 
-elif menu == "Atualizar Status":
+elif menu == "⚙️ Atualizar Status":
     st.subheader("Atualizar Status")
 
     if df.empty:
@@ -470,7 +493,7 @@ elif menu == "Atualizar Status":
             st.rerun()
 
 
-elif menu == "Desativar / Excluir":
+elif menu == "🗑️ Desativar / Excluir":
     st.subheader("Desativar / Excluir Câmera")
 
     if df.empty:
