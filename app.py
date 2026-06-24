@@ -16,7 +16,7 @@ st.set_page_config(
     page_title="DHL Security Camera Command Center",
     page_icon="📷",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
 )
 
 # =====================================================
@@ -24,7 +24,6 @@ st.set_page_config(
 # =====================================================
 DATABASE_URL = st.secrets["DATABASE_URL"]
 engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-
 
 # =====================================================
 # FUNÇÕES DE BANCO
@@ -40,19 +39,22 @@ def consultar_df(sql, params=None):
 
 
 def carregar_cameras():
-    return consultar_df("""
+    return consultar_df(
+        """
         SELECT
             id, numero, operacao, nome_camera, canal, ip_camera, modelo, marca,
             dias_gravacao, nvr, ip_nvr, rack, status, qualidade_gravacao,
             observacao, acao_necessaria, serie_number, ativo, criado_em, atualizado_em
         FROM cameras
         ORDER BY id DESC
-    """)
+        """
+    )
 
 
-def carregar_cameras_com_foto(limit=24):
+def carregar_cameras_com_foto(limit=60):
     try:
-        return consultar_df("""
+        return consultar_df(
+            """
             SELECT
                 id, numero, operacao, nome_camera, canal, ip_camera, modelo, marca,
                 dias_gravacao, nvr, ip_nvr, rack, status, qualidade_gravacao,
@@ -61,9 +63,30 @@ def carregar_cameras_com_foto(limit=24):
             FROM cameras
             ORDER BY id DESC
             LIMIT :limit
-        """, {"limit": limit})
+            """,
+            {"limit": limit},
+        )
     except Exception:
         return pd.DataFrame()
+
+
+def carregar_camera_por_id(camera_id):
+    data = consultar_df(
+        """
+        SELECT
+            id, numero, operacao, nome_camera, canal, ip_camera, login_camera, senha_camera,
+            modelo, marca, inicio_gravacao, termino_gravacao, dias_gravacao,
+            nvr, ip_nvr, login_nvr, senha_nvr, rack, status, qualidade_gravacao,
+            observacao, horario, acao_necessaria, serie_number, ativo, foto_camera, foto_nome,
+            criado_em, atualizado_em
+        FROM cameras
+        WHERE id = :id
+        """,
+        {"id": int(camera_id)},
+    )
+    if data.empty:
+        return None
+    return data.iloc[0]
 
 
 def imagem_para_bytes(uploaded_file):
@@ -75,8 +98,8 @@ def imagem_para_bytes(uploaded_file):
 def cadastrar_camera(dados, foto, foto_nome):
     dados["foto_camera"] = foto
     dados["foto_nome"] = foto_nome
-
-    executar_sql("""
+    executar_sql(
+        """
         INSERT INTO cameras (
             numero, operacao, nome_camera, canal, ip_camera, login_camera, senha_camera,
             modelo, marca, inicio_gravacao, termino_gravacao, dias_gravacao,
@@ -91,11 +114,59 @@ def cadastrar_camera(dados, foto, foto_nome):
             :observacao, :horario, :acao_necessaria, :serie_number, :foto_camera, :foto_nome,
             TRUE, CURRENT_TIMESTAMP
         )
-    """, dados)
+        """,
+        dados,
+    )
+
+
+def atualizar_camera_completa(camera_id, dados, foto=None, foto_nome=None):
+    payload = dict(dados)
+    payload["id"] = int(camera_id)
+    set_foto_sql = ""
+    if foto is not None:
+        payload["foto_camera"] = foto
+        payload["foto_nome"] = foto_nome
+        set_foto_sql = ", foto_camera = :foto_camera, foto_nome = :foto_nome"
+
+    executar_sql(
+        f"""
+        UPDATE cameras
+        SET
+            numero = :numero,
+            operacao = :operacao,
+            nome_camera = :nome_camera,
+            canal = :canal,
+            ip_camera = :ip_camera,
+            login_camera = :login_camera,
+            senha_camera = :senha_camera,
+            modelo = :modelo,
+            marca = :marca,
+            inicio_gravacao = :inicio_gravacao,
+            termino_gravacao = :termino_gravacao,
+            dias_gravacao = :dias_gravacao,
+            nvr = :nvr,
+            ip_nvr = :ip_nvr,
+            login_nvr = :login_nvr,
+            senha_nvr = :senha_nvr,
+            rack = :rack,
+            status = :status,
+            qualidade_gravacao = :qualidade_gravacao,
+            observacao = :observacao,
+            horario = :horario,
+            acao_necessaria = :acao_necessaria,
+            serie_number = :serie_number,
+            ativo = :ativo,
+            atualizado_em = CURRENT_TIMESTAMP
+            {set_foto_sql}
+        WHERE id = :id
+        """,
+        payload,
+    )
 
 
 def atualizar_status(camera_id, status, qualidade, observacao, acao):
-    executar_sql("""
+    executar_sql(
+        """
         UPDATE cameras
         SET status = :status,
             qualidade_gravacao = :qualidade,
@@ -103,38 +174,45 @@ def atualizar_status(camera_id, status, qualidade, observacao, acao):
             acao_necessaria = :acao,
             atualizado_em = CURRENT_TIMESTAMP
         WHERE id = :id
-    """, {
-        "id": camera_id,
-        "status": status,
-        "qualidade": qualidade,
-        "observacao": observacao,
-        "acao": acao
-    })
+        """,
+        {
+            "id": camera_id,
+            "status": status,
+            "qualidade": qualidade,
+            "observacao": observacao,
+            "acao": acao,
+        },
+    )
 
 
 def desativar_camera(camera_id):
-    executar_sql("""
+    executar_sql(
+        """
         UPDATE cameras
         SET ativo = FALSE,
             status = 'INATIVA',
             atualizado_em = CURRENT_TIMESTAMP
         WHERE id = :id
-    """, {"id": camera_id})
+        """,
+        {"id": camera_id},
+    )
 
 
 def reativar_camera(camera_id):
-    executar_sql("""
+    executar_sql(
+        """
         UPDATE cameras
         SET ativo = TRUE,
             status = 'ATIVA',
             atualizado_em = CURRENT_TIMESTAMP
         WHERE id = :id
-    """, {"id": camera_id})
+        """,
+        {"id": camera_id},
+    )
 
 
 def excluir_camera(camera_id):
     executar_sql("DELETE FROM cameras WHERE id = :id", {"id": camera_id})
-
 
 # =====================================================
 # FUNÇÕES AUXILIARES
@@ -147,7 +225,7 @@ def safe_text(value, default="Não informado"):
     if value is None or pd.isna(value):
         return default
     value = str(value).strip()
-    if value == "" or value.lower() in ["nan", "none", "undefined"]:
+    if value == "" or value.lower() in ["nan", "none", "undefined", "null"]:
         return default
     return value
 
@@ -156,12 +234,42 @@ def esc(value, default="Não informado"):
     return html.escape(safe_text(value, default))
 
 
+def safe_int(value, default=0):
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def safe_date_for_input(value):
+    if value is None or pd.isna(value):
+        return br_now().date()
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        return br_now().date()
+
+
 def normalizar_base(df):
     if df.empty:
         return df
-
     out = df.copy()
-    texto_cols = ["operacao", "nome_camera", "status", "qualidade_gravacao", "nvr", "rack", "ip_camera", "canal", "modelo", "marca"]
+    texto_cols = [
+        "operacao",
+        "nome_camera",
+        "status",
+        "qualidade_gravacao",
+        "nvr",
+        "rack",
+        "ip_camera",
+        "canal",
+        "modelo",
+        "marca",
+        "observacao",
+        "acao_necessaria",
+    ]
     for col in texto_cols:
         if col in out.columns:
             out[col] = out[col].apply(lambda x: safe_text(x))
@@ -173,8 +281,12 @@ def normalizar_base(df):
     out["qualidade_upper"] = out["qualidade_gravacao"].fillna("").str.upper()
     out["is_ativa"] = (out["ativo"] == True) & (out["status_upper"] == "ATIVA")
     out["is_inativa"] = (out["ativo"] == False) | out["status_upper"].str.contains("INATIVA", na=False)
-    out["is_sem_gravacao"] = out["status_upper"].str.contains("SEM GRAVAÇÃO", na=False) | out["qualidade_upper"].str.contains("SEM GRAVAÇÃO", na=False)
-    out["is_falha"] = out["status_upper"].str.contains("FALHA", na=False) | out["qualidade_upper"].str.contains("RUIM|SEM IMAGEM", na=False)
+    out["is_sem_gravacao"] = out["status_upper"].str.contains("SEM GRAVAÇÃO", na=False) | out[
+        "qualidade_upper"
+    ].str.contains("SEM GRAVAÇÃO", na=False)
+    out["is_falha"] = out["status_upper"].str.contains("FALHA", na=False) | out["qualidade_upper"].str.contains(
+        "RUIM|SEM IMAGEM", na=False
+    )
     out["has_pendencia"] = out["acao_necessaria"].fillna("").astype(str).str.strip().str.len() > 0
     return out
 
@@ -189,9 +301,8 @@ def calcular_metricas(df):
             "sem_gravacao": 0,
             "falhas": 0,
             "disponibilidade": 0,
-            "nvrs": 0
+            "nvrs": 0,
         }
-
     base = normalizar_base(df)
     total = len(base)
     ativas = int(base["is_ativa"].sum())
@@ -201,7 +312,6 @@ def calcular_metricas(df):
     falhas = int((base["is_falha"] | base["is_sem_gravacao"]).sum())
     disponibilidade = round((ativas / total) * 100, 1) if total else 0
     nvrs = base["nvr"].replace("Não informado", pd.NA).dropna().nunique()
-
     return {
         "total": total,
         "ativas": ativas,
@@ -210,13 +320,13 @@ def calcular_metricas(df):
         "sem_gravacao": sem_gravacao,
         "falhas": falhas,
         "disponibilidade": disponibilidade,
-        "nvrs": int(nvrs)
+        "nvrs": int(nvrs),
     }
 
 
 def status_class(status):
     s = safe_text(status, "").upper()
-    if "ATIVA" == s:
+    if s == "ATIVA":
         return "status-green"
     if "MANUT" in s or "REGULAR" in s:
         return "status-yellow"
@@ -225,7 +335,7 @@ def status_class(status):
     return "status-gray"
 
 
-def bytes_para_base64(img_bytes):
+def bytes_to_image_bytes(img_bytes):
     if img_bytes is None or pd.isna(img_bytes):
         return None
     if isinstance(img_bytes, memoryview):
@@ -234,19 +344,11 @@ def bytes_para_base64(img_bytes):
         img_bytes = bytes(img_bytes)
     if not isinstance(img_bytes, (bytes, bytearray)):
         return None
-    try:
-        return base64.b64encode(img_bytes).decode("utf-8")
-    except Exception:
+    # Proteção: não renderiza texto/código salvo por engano como imagem.
+    start = bytes(img_bytes[:80]).lstrip().lower()
+    if start.startswith(b"<div") or start.startswith(b"<html") or start.startswith(b"import ") or start.startswith(b"st."):
         return None
-
-
-def mime_por_nome(nome):
-    nome = str(nome or "").lower()
-    if nome.endswith(".jpg") or nome.endswith(".jpeg"):
-        return "image/jpeg"
-    if nome.endswith(".webp"):
-        return "image/webp"
-    return "image/png"
+    return img_bytes
 
 
 def configurar_figura(fig, height=360):
@@ -255,8 +357,8 @@ def configurar_figura(fig, height=360):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#FFFFFF",
         font=dict(color="#1F2937", family="Inter"),
-        margin=dict(l=10, r=10, t=54, b=24),
-        title_font=dict(size=17, color="#1F2937", family="Inter")
+        margin=dict(l=12, r=22, t=54, b=24),
+        title_font=dict(size=17, color="#1F2937", family="Inter"),
     )
     fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
     fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
@@ -275,7 +377,6 @@ def kpi_card(title, value, caption, kind="default"):
     elif kind == "warning":
         cls += " kpi-warning"
         val_cls += " yellow"
-
     return f"""
     <div class="{cls}">
         <div class="kpi-title">{html.escape(str(title))}</div>
@@ -284,11 +385,11 @@ def kpi_card(title, value, caption, kind="default"):
     </div>
     """
 
-
 # =====================================================
-# CSS PROFISSIONAL DHL V7
+# CSS PROFISSIONAL DHL V8
 # =====================================================
-st.markdown("""
+st.markdown(
+    """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 
@@ -347,7 +448,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     position: relative;
     overflow: hidden;
 }
-
 .sidebar-brand:after {
     content: "";
     position: absolute;
@@ -358,7 +458,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     background: rgba(212, 5, 17, .12);
     border-radius: 50%;
 }
-
 .sidebar-brand .brand-title {
     font-weight: 900;
     color: var(--dhl-red) !important;
@@ -368,7 +467,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     position: relative;
     z-index: 2;
 }
-
 .sidebar-brand .brand-subtitle {
     color: #2B2B2B !important;
     font-size: 11px;
@@ -379,7 +477,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     position: relative;
     z-index: 2;
 }
-
 .sidebar-section {
     font-size: 11px;
     color: var(--muted) !important;
@@ -389,7 +486,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     margin-top: 18px;
     margin-bottom: 8px;
 }
-
 .sidebar-mini-card {
     background: #F9FAFB;
     border: 1px solid var(--border);
@@ -398,7 +494,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     margin-bottom: 10px;
     box-shadow: 0 8px 22px rgba(15,23,42,.035);
 }
-
 .sidebar-mini-card .mini-title {
     color: var(--muted) !important;
     font-size: 10px;
@@ -406,7 +501,6 @@ section[data-testid="stSidebar"] * { color: var(--text) !important; }
     text-transform: uppercase;
     letter-spacing: .08em;
 }
-
 .sidebar-mini-card .mini-value {
     color: var(--dhl-red) !important;
     font-size: 24px;
@@ -424,13 +518,11 @@ div[role="radiogroup"] label {
     transition: all .16s ease;
     font-weight: 700 !important;
 }
-
 div[role="radiogroup"] label:hover {
     background: #FFF7CC !important;
     border-color: #FFE066 !important;
     transform: translateX(2px);
 }
-
 div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: none !important; }
 
 .app-header {
@@ -443,7 +535,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     position: relative;
     overflow: hidden;
 }
-
 .app-header:before {
     content: "";
     position: absolute;
@@ -451,7 +542,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     height: 8px;
     background: linear-gradient(90deg, var(--dhl-red) 0%, var(--dhl-red) 24%, var(--dhl-yellow) 24%, var(--dhl-yellow) 100%);
 }
-
 .app-header-grid {
     display: grid;
     grid-template-columns: 1fr auto;
@@ -459,7 +549,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     align-items: center;
     margin-top: 8px;
 }
-
 .header-title {
     font-size: 32px;
     font-weight: 900;
@@ -467,14 +556,12 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     line-height: 1.1;
     letter-spacing: -0.045em;
 }
-
 .header-subtitle {
     color: var(--muted);
     font-size: 14px;
     margin-top: 8px;
     font-weight: 700;
 }
-
 .header-right {
     display: flex;
     gap: 10px;
@@ -482,7 +569,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     flex-wrap: wrap;
     justify-content: flex-end;
 }
-
 .badge {
     padding: 9px 13px;
     border-radius: 999px;
@@ -492,18 +578,16 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     background: #F9FAFB;
     color: var(--text);
 }
-
 .badge-online { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
-.badge-dhl { background: var(--dhl-yellow-soft); color: var(--dhl-red); border-color: #FFE066; }
 
 .kpi-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 22px;
     padding: 18px 18px 16px 18px;
-    height: 138px;
-    min-height: 138px;
-    max-height: 138px;
+    height: 136px;
+    min-height: 136px;
+    max-height: 136px;
     box-shadow: 0 11px 30px rgba(15, 23, 42, 0.055);
     position: relative;
     overflow: hidden;
@@ -511,7 +595,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     flex-direction: column;
     justify-content: space-between;
 }
-
 .kpi-card:before {
     content: "";
     position: absolute;
@@ -521,11 +604,9 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     height: 100%;
     background: var(--dhl-yellow);
 }
-
 .kpi-card.kpi-danger:before { background: var(--dhl-red); }
 .kpi-card.kpi-success:before { background: var(--success); }
 .kpi-card.kpi-warning:before { background: var(--warning); }
-
 .kpi-title {
     font-size: 10px;
     color: var(--muted);
@@ -535,7 +616,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     margin-left: 4px;
     min-height: 24px;
 }
-
 .kpi-value {
     font-size: 28px;
     color: var(--text);
@@ -544,11 +624,9 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     line-height: 1;
     white-space: nowrap;
 }
-
 .kpi-value.red { color: var(--dhl-red); }
 .kpi-value.green { color: var(--success); }
 .kpi-value.yellow { color: var(--warning); }
-
 .kpi-caption {
     margin-left: 4px;
     font-size: 11px;
@@ -556,7 +634,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     font-weight: 700;
     min-height: 18px;
 }
-
 .panel {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -565,7 +642,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     box-shadow: 0 12px 34px rgba(15, 23, 42, 0.055);
     margin-bottom: 18px;
 }
-
 .panel-title {
     font-size: 18px;
     font-weight: 900;
@@ -573,7 +649,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     margin-bottom: 12px;
     letter-spacing: -0.025em;
 }
-
 .panel-subtitle {
     color: var(--muted);
     font-size: 13px;
@@ -581,7 +656,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     margin-bottom: 12px;
     font-weight: 500;
 }
-
 .form-section {
     background: var(--surface);
     border: 1px solid var(--border);
@@ -589,50 +663,8 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     padding: 22px;
     box-shadow: 0 12px 34px rgba(15, 23, 42, 0.055);
 }
-
-.camera-card-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(190px, 1fr));
-    gap: 16px;
-}
-
-.camera-card {
-    border: 1px solid var(--border);
-    background: #FFFFFF;
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 9px 24px rgba(15, 23, 42, 0.055);
-}
-
-.camera-img {
-    height: 132px;
-    background: linear-gradient(135deg, #E5E7EB, #F9FAFB);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
-    font-weight: 900;
-    font-size: 12px;
-    text-transform: uppercase;
-}
-
-.camera-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
-
-.camera-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    background: linear-gradient(135deg, #F3F4F6, #FFFFFF);
-    color: #9CA3AF;
-    font-size: 28px;
-}
-
-.camera-body { padding: 14px; }
-.camera-title { font-weight: 900; color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.camera-meta { color: var(--muted); font-size: 12px; margin-top: 5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
+.camera-card-title { font-size: 20px; font-weight: 900; color: var(--text); margin-bottom: 4px; }
+.camera-card-subtitle { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
 .status-pill { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
 .status-green { background: #ECFDF5; color: #047857; }
 .status-yellow { background: #FFFBEB; color: #B45309; }
@@ -648,7 +680,6 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     min-height: 42px;
 }
 .stButton button:hover { background: #F4C400 !important; color: #111827 !important; }
-
 .stDownloadButton button {
     border-radius: 12px !important;
     background: var(--dhl-red) !important;
@@ -656,19 +687,15 @@ div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: 
     border: 1px solid var(--dhl-red-dark) !important;
     font-weight: 900 !important;
 }
-
 [data-testid="stDataFrame"] { border-radius: 18px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04); }
 input, textarea { border-radius: 12px !important; }
 div[data-baseweb="select"] > div { border-radius: 12px !important; }
 hr { border-color: var(--border); }
-
-@media (max-width: 1200px) {
-    .camera-card-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
-    .app-header-grid { grid-template-columns: 1fr; }
-}
+@media (max-width: 1200px) { .app-header-grid { grid-template-columns: 1fr; } }
 </style>
-""", unsafe_allow_html=True)
-
+""",
+    unsafe_allow_html=True,
+)
 
 # =====================================================
 # DADOS E MÉTRICAS
@@ -680,15 +707,17 @@ metricas = calcular_metricas(df)
 # =====================================================
 # SIDEBAR PREMIUM
 # =====================================================
-st.sidebar.markdown("""
+st.sidebar.markdown(
+    """
 <div class="sidebar-brand">
     <div class="brand-title">DHL<br>Security</div>
     <div class="brand-subtitle">Camera Command Center</div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 st.sidebar.markdown('<div class="sidebar-section">Navegação</div>', unsafe_allow_html=True)
-
 menu = st.sidebar.radio(
     "",
     [
@@ -696,14 +725,16 @@ menu = st.sidebar.radio(
         "📷 Inventário Técnico",
         "🖼️ Book Visual",
         "➕ Nova Câmera",
+        "✏️ Editar Câmera",
         "🔧 Manutenção",
-        "🗑️ Desativar / Excluir"
+        "🗑️ Desativar / Excluir",
     ],
-    label_visibility="collapsed"
+    label_visibility="collapsed",
 )
 
 st.sidebar.markdown('<div class="sidebar-section">Resumo operacional</div>', unsafe_allow_html=True)
-st.sidebar.markdown(f"""
+st.sidebar.markdown(
+    f"""
 <div class="sidebar-mini-card">
     <div class="mini-title">Disponibilidade</div>
     <div class="mini-value">{metricas['disponibilidade']}%</div>
@@ -713,16 +744,23 @@ st.sidebar.markdown(f"""
     <div class="mini-value">{metricas['total']}</div>
 </div>
 <div class="sidebar-mini-card">
+    <div class="mini-title">Inativas</div>
+    <div class="mini-value">{metricas['inativas']}</div>
+</div>
+<div class="sidebar-mini-card">
     <div class="mini-title">Pendências</div>
     <div class="mini-value">{metricas['pendencias']}</div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =====================================================
 # HEADER PROFISSIONAL
 # =====================================================
 last_update = br_now().strftime("%d/%m/%Y %H:%M")
-st.markdown(f"""
+st.markdown(
+    f"""
 <div class="app-header">
     <div class="app-header-grid">
         <div>
@@ -731,19 +769,20 @@ st.markdown(f"""
         </div>
         <div class="header-right">
             <div class="badge badge-online">Sistema Online</div>
-            <div class="badge badge-dhl">DHL Theme</div>
             <div class="badge">Atualizado: {last_update}</div>
         </div>
     </div>
 </div>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =====================================================
 # DASHBOARD EXECUTIVO
 # =====================================================
 if menu == "📊 Dashboard Executivo":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas['disponibilidade'] >= 95 else "danger"), unsafe_allow_html=True)
+    c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas["disponibilidade"] >= 95 else "danger"), unsafe_allow_html=True)
     c2.markdown(kpi_card("Total", metricas["total"], "câmeras cadastradas"), unsafe_allow_html=True)
     c3.markdown(kpi_card("Ativas", metricas["ativas"], "em operação", "success"), unsafe_allow_html=True)
     c4.markdown(kpi_card("Inativas", metricas["inativas"], "fora de operação", "warning" if metricas["inativas"] > 0 else "success"), unsafe_allow_html=True)
@@ -756,21 +795,19 @@ if menu == "📊 Dashboard Executivo":
         st.info("Nenhuma câmera cadastrada ainda.")
     else:
         template = "plotly_white"
-
         op = df_norm.groupby("operacao", dropna=False).agg(
             total=("id", "count"),
             ativas=("is_ativa", "sum"),
             inativas=("is_inativa", "sum"),
             falhas=("is_falha", "sum"),
             sem_gravacao=("is_sem_gravacao", "sum"),
-            pendencias=("has_pendencia", "sum")
+            pendencias=("has_pendencia", "sum"),
         ).reset_index()
         op["disponibilidade"] = (op["ativas"] / op["total"] * 100).round(1)
         op["risco"] = op["falhas"] + op["sem_gravacao"] + op["pendencias"] + op["inativas"]
         op = op.sort_values("disponibilidade", ascending=True)
 
-        col1, col2 = st.columns([1.2, 1])
-
+        col1, col2 = st.columns([1.25, 1])
         with col1:
             st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking operacional para priorização de manutenção.</div>', unsafe_allow_html=True)
             fig_op = px.bar(
@@ -783,12 +820,12 @@ if menu == "📊 Dashboard Executivo":
                 color_continuous_scale=[[0, "#D40511"], [0.55, "#F59E0B"], [1, "#0E9F6E"]],
                 range_x=[0, 100],
                 template=template,
-                labels={"disponibilidade": "Disponibilidade (%)", "operacao": "Operação"}
+                labels={"disponibilidade": "Disponibilidade (%)", "operacao": "Operação"},
             )
-            fig_op.update_traces(texttemplate="%{text}%", textposition="outside", marker_line_width=0, width=0.58)
+            fig_op.update_traces(texttemplate="%{text:.1f}%", textposition="outside", marker_line_width=0, width=0.55)
             fig_op.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Disponibilidade (%)", yaxis_title="")
             st.plotly_chart(configurar_figura(fig_op, 390), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
             st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Visão consolidada de status das câmeras.</div>', unsafe_allow_html=True)
@@ -799,15 +836,14 @@ if menu == "📊 Dashboard Executivo":
                 values="total",
                 hole=0.62,
                 template=template,
-                color_discrete_sequence=["#0E9F6E", "#FFCC00", "#D40511", "#6B7280", "#F59E0B"]
+                color_discrete_sequence=["#0E9F6E", "#FFCC00", "#D40511", "#6B7280", "#F59E0B"],
             )
             fig_status.update_traces(textposition="inside", textinfo="percent+label")
             fig_status.update_layout(legend_title_text="Status")
             st.plotly_chart(configurar_figura(fig_status, 390), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         col3, col4 = st.columns([1.1, 1])
-
         with col3:
             st.markdown('<div class="panel"><div class="panel-title">Carga Operacional por NVR</div><div class="panel-subtitle">Quantidade de câmeras vinculadas por gravador.</div>', unsafe_allow_html=True)
             nvr_df = df_norm.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total", ascending=True)
@@ -820,41 +856,33 @@ if menu == "📊 Dashboard Executivo":
                 color="total",
                 color_continuous_scale=[[0, "#FFCC00"], [0.65, "#F59E0B"], [1, "#D40511"]],
                 template=template,
-                labels={"total": "Câmeras", "nvr": "NVR"}
+                labels={"total": "Câmeras", "nvr": "NVR"},
             )
-            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.58)
+            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.55)
             fig_nvr.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Câmeras", yaxis_title="")
             st.plotly_chart(configurar_figura(fig_nvr, 370), use_container_width=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col4:
             st.markdown('<div class="panel"><div class="panel-title">Mapa de Risco Operacional</div><div class="panel-subtitle">Falhas, pendências e câmeras inativas por operação.</div>', unsafe_allow_html=True)
             risco = op.sort_values("risco", ascending=False)[["operacao", "total", "inativas", "falhas", "sem_gravacao", "pendencias", "risco"]]
             st.dataframe(risco, use_container_width=True, hide_index=True)
-            st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        pend = df_norm[
-            (df_norm["has_pendencia"] == True) |
-            (df_norm["is_falha"] == True) |
-            (df_norm["is_sem_gravacao"] == True) |
-            (df_norm["is_inativa"] == True)
-        ].copy()
+        pend = df_norm[(df_norm["has_pendencia"] == True) | (df_norm["is_falha"] == True) | (df_norm["is_sem_gravacao"] == True) | (df_norm["is_inativa"] == True)].copy()
         pend = pend[["id", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(15)
-
         st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas</div><div class="panel-subtitle">Lista priorizada para tratativa operacional e manutenção.</div>', unsafe_allow_html=True)
         if pend.empty:
             st.success("Nenhuma pendência crítica identificada.")
         else:
             st.dataframe(pend, use_container_width=True, hide_index=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # INVENTÁRIO TÉCNICO
 # =====================================================
 elif menu == "📷 Inventário Técnico":
     st.markdown('<div class="panel"><div class="panel-title">Inventário Técnico de Câmeras</div><div class="panel-subtitle">Consulta, filtros e exportação da base técnica do parque de CFTV.</div>', unsafe_allow_html=True)
-
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
@@ -863,7 +891,6 @@ elif menu == "📷 Inventário Técnico":
         filtro_status = col2.selectbox("Status", ["Todos"] + sorted(df_norm["status"].dropna().unique().tolist()))
         filtro_ativo = col3.selectbox("Situação", ["Todas", "Ativas", "Inativas"])
         filtro_busca = col4.text_input("Busca geral")
-
         df_filtro = df_norm.copy()
         if filtro_operacao:
             df_filtro = df_filtro[df_filtro["operacao"].str.contains(filtro_operacao, case=False, na=False)]
@@ -876,217 +903,251 @@ elif menu == "📷 Inventário Técnico":
         if filtro_busca:
             busca = filtro_busca.lower()
             df_filtro = df_filtro[
-                df_filtro["nome_camera"].str.lower().str.contains(busca, na=False) |
-                df_filtro["ip_camera"].str.lower().str.contains(busca, na=False) |
-                df_filtro["nvr"].str.lower().str.contains(busca, na=False) |
-                df_filtro["rack"].str.lower().str.contains(busca, na=False)
+                df_filtro["nome_camera"].str.lower().str.contains(busca, na=False)
+                | df_filtro["ip_camera"].str.lower().str.contains(busca, na=False)
+                | df_filtro["nvr"].str.lower().str.contains(busca, na=False)
+                | df_filtro["rack"].str.lower().str.contains(busca, na=False)
             ]
-
         cols = ["id", "numero", "operacao", "nome_camera", "canal", "ip_camera", "modelo", "marca", "dias_gravacao", "nvr", "ip_nvr", "rack", "status", "qualidade_gravacao", "observacao", "acao_necessaria", "serie_number", "ativo", "criado_em", "atualizado_em"]
         cols = [c for c in cols if c in df_filtro.columns]
         st.dataframe(df_filtro[cols], use_container_width=True, hide_index=True)
-
         df_filtro[cols].to_excel("inventario_cameras.xlsx", index=False)
         with open("inventario_cameras.xlsx", "rb") as file:
             st.download_button("Baixar inventário em Excel", file, file_name="inventario_cameras.xlsx")
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
-# BOOK VISUAL
+# BOOK VISUAL - NATIVO STREAMLIT PARA EVITAR HTML/CÓDIGO APARECENDO
 # =====================================================
 elif menu == "🖼️ Book Visual":
-    st.markdown('<div class="panel"><div class="panel-title">Book Visual de Câmeras</div><div class="panel-subtitle">Galeria operacional com imagens e principais informações técnicas.</div>', unsafe_allow_html=True)
-
-    fotos_df = carregar_cameras_com_foto(24)
+    st.markdown('<div class="panel"><div class="camera-card-title">Book Visual de Câmeras</div><div class="camera-card-subtitle">Galeria operacional com imagens e principais informações técnicas.</div></div>', unsafe_allow_html=True)
+    fotos_df = carregar_cameras_com_foto(60)
     if fotos_df.empty:
         st.info("Nenhuma câmera disponível para exibição visual.")
     else:
-        cards_html = '<div class="camera-card-grid">'
-        for _, row in fotos_df.iterrows():
-            img64 = bytes_para_base64(row.get("foto_camera"))
-            if img64:
-                mime = mime_por_nome(row.get("foto_nome"))
-                img_html = f'<img src="data:{mime};base64,{img64}" alt="Foto da câmera" />'
-            else:
-                img_html = '<div class="camera-placeholder">📷</div>'
+        busca_book = st.text_input("Filtrar book por câmera, operação, IP ou NVR")
+        book_df = normalizar_base(fotos_df.drop(columns=["foto_camera", "foto_nome"], errors="ignore"))
+        fotos_base = fotos_df.copy()
+        if busca_book:
+            busca = busca_book.lower()
+            mask = (
+                book_df["nome_camera"].str.lower().str.contains(busca, na=False)
+                | book_df["operacao"].str.lower().str.contains(busca, na=False)
+                | book_df["ip_camera"].str.lower().str.contains(busca, na=False)
+                | book_df["nvr"].str.lower().str.contains(busca, na=False)
+            )
+            fotos_base = fotos_base[mask.values]
 
-            status = safe_text(row.get("status"), "Não informado")
-            cls = status_class(status)
-            nome_camera = esc(row.get("nome_camera"))
-            operacao = esc(row.get("operacao"))
-            canal = esc(row.get("canal"))
-            ip_camera = esc(row.get("ip_camera"))
-            nvr = esc(row.get("nvr"))
-            rack = esc(row.get("rack"))
-
-            cards_html += f"""
-            <div class="camera-card">
-                <div class="camera-img">{img_html}</div>
-                <div class="camera-body">
-                    <div class="camera-title">{nome_camera}</div>
-                    <div class="camera-meta">{operacao} • Canal {canal}</div>
-                    <div class="camera-meta">IP: {ip_camera}</div>
-                    <div class="camera-meta">NVR: {nvr} • Rack: {rack}</div>
-                    <div style="margin-top:10px;"><span class="status-pill {cls}">{html.escape(status)}</span></div>
-                </div>
-            </div>
-            """
-        cards_html += '</div>'
-        st.markdown(cards_html, unsafe_allow_html=True)
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
+        for start in range(0, len(fotos_base), 4):
+            cols = st.columns(4)
+            for col, (_, row) in zip(cols, fotos_base.iloc[start:start + 4].iterrows()):
+                with col:
+                    with st.container(border=True):
+                        img_bytes = bytes_to_image_bytes(row.get("foto_camera"))
+                        if img_bytes:
+                            st.image(img_bytes, use_container_width=True)
+                        else:
+                            st.markdown(
+                                """
+                                <div style="height:160px;border-radius:14px;background:linear-gradient(135deg,#F3F4F6,#FFFFFF);display:flex;align-items:center;justify-content:center;color:#9CA3AF;font-size:42px;border:1px solid #E5E7EB;">📷</div>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                        st.markdown(f"**{safe_text(row.get('nome_camera'))}**")
+                        st.caption(f"{safe_text(row.get('operacao'))} • Canal {safe_text(row.get('canal'))}")
+                        st.write(f"**IP:** {safe_text(row.get('ip_camera'))}")
+                        st.write(f"**NVR:** {safe_text(row.get('nvr'))}")
+                        st.write(f"**Rack:** {safe_text(row.get('rack'))}")
+                        st.markdown(f"<span class='status-pill {status_class(row.get('status'))}'>{esc(row.get('status'))}</span>", unsafe_allow_html=True)
 
 # =====================================================
 # CADASTRO
 # =====================================================
 elif menu == "➕ Nova Câmera":
     st.markdown('<div class="form-section"><h3>Cadastro de Nova Câmera</h3>', unsafe_allow_html=True)
-
     with st.form("cadastro"):
         st.markdown("##### Identificação")
         col1, col2, col3 = st.columns(3)
         numero = col1.number_input("Nº", min_value=0, step=1)
         operacao = col2.text_input("Operação")
         nome_camera = col3.text_input("Nome da câmera")
-
         col4, col5, col6 = st.columns(3)
         canal = col4.text_input("Canal")
         ip_camera = col5.text_input("IP da câmera")
         rack = col6.text_input("Rack")
-
         st.markdown("##### Dados técnicos")
         col7, col8, col9 = st.columns(3)
         login_camera = col7.text_input("Login câmera")
         senha_camera = col8.text_input("Senha câmera", type="password")
         serie_number = col9.text_input("Série Number")
-
         col10, col11, col12 = st.columns(3)
         modelo = col10.text_input("Modelo")
         marca = col11.text_input("Marca")
         dias_gravacao = col12.number_input("Dias de gravação", min_value=0, step=1)
-
         st.markdown("##### Gravação e NVR")
         col13, col14, col15 = st.columns(3)
         inicio_gravacao = col13.date_input("Início gravação")
         termino_gravacao = col14.date_input("Término gravação")
         horario = col15.text_input("Horário")
-
         col16, col17, col18 = st.columns(3)
         nvr = col16.text_input("NVR")
         ip_nvr = col17.text_input("IP NVR")
         login_nvr = col18.text_input("Login NVR")
-
         col19, col20 = st.columns(2)
         senha_nvr = col19.text_input("Senha NVR", type="password")
         status = col20.selectbox("Status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
-
         qualidade_gravacao = st.selectbox("Qualidade da gravação", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
         observacao = st.text_area("Observação")
         acao_necessaria = st.text_area("Ação necessária")
         foto_upload = st.file_uploader("Foto / imagem da câmera", type=["png", "jpg", "jpeg", "webp"])
-
         salvar = st.form_submit_button("Cadastrar câmera")
-
         if salvar:
             if not nome_camera:
                 st.error("Informe o nome da câmera.")
             else:
                 foto_bytes, foto_nome = imagem_para_bytes(foto_upload)
-                dados = {
-                    "numero": numero,
-                    "operacao": operacao,
-                    "nome_camera": nome_camera,
-                    "canal": canal,
-                    "ip_camera": ip_camera,
-                    "login_camera": login_camera,
-                    "senha_camera": senha_camera,
-                    "modelo": modelo,
-                    "marca": marca,
-                    "inicio_gravacao": inicio_gravacao,
-                    "termino_gravacao": termino_gravacao,
-                    "dias_gravacao": dias_gravacao,
-                    "nvr": nvr,
-                    "ip_nvr": ip_nvr,
-                    "login_nvr": login_nvr,
-                    "senha_nvr": senha_nvr,
-                    "rack": rack,
-                    "status": status,
-                    "qualidade_gravacao": qualidade_gravacao,
-                    "observacao": observacao,
-                    "horario": horario,
-                    "acao_necessaria": acao_necessaria,
-                    "serie_number": serie_number
-                }
-                cadastrar_camera(dados, foto_bytes, foto_nome)
+                cadastrar_camera({
+                    "numero": numero, "operacao": operacao, "nome_camera": nome_camera, "canal": canal, "ip_camera": ip_camera,
+                    "login_camera": login_camera, "senha_camera": senha_camera, "modelo": modelo, "marca": marca,
+                    "inicio_gravacao": inicio_gravacao, "termino_gravacao": termino_gravacao, "dias_gravacao": dias_gravacao,
+                    "nvr": nvr, "ip_nvr": ip_nvr, "login_nvr": login_nvr, "senha_nvr": senha_nvr, "rack": rack,
+                    "status": status, "qualidade_gravacao": qualidade_gravacao, "observacao": observacao, "horario": horario,
+                    "acao_necessaria": acao_necessaria, "serie_number": serie_number
+                }, foto_bytes, foto_nome)
                 st.success("Câmera cadastrada com sucesso.")
                 st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
-
+# =====================================================
+# EDITAR CÂMERA
+# =====================================================
+elif menu == "✏️ Editar Câmera":
+    st.markdown('<div class="form-section"><h3>Editar Informações da Câmera</h3>', unsafe_allow_html=True)
+    if df_norm.empty:
+        st.warning("Nenhuma câmera cadastrada.")
+    else:
+        camera_id = st.selectbox(
+            "Selecione a câmera para editar",
+            df_norm["id"].tolist(),
+            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
+        )
+        row = carregar_camera_por_id(camera_id)
+        if row is None:
+            st.error("Câmera não encontrada.")
+        else:
+            with st.form("editar_camera"):
+                st.markdown("##### Identificação")
+                col1, col2, col3 = st.columns(3)
+                numero = col1.number_input("Nº", min_value=0, step=1, value=safe_int(row.get("numero")))
+                operacao = col2.text_input("Operação", value=safe_text(row.get("operacao"), ""))
+                nome_camera = col3.text_input("Nome da câmera", value=safe_text(row.get("nome_camera"), ""))
+                col4, col5, col6 = st.columns(3)
+                canal = col4.text_input("Canal", value=safe_text(row.get("canal"), ""))
+                ip_camera = col5.text_input("IP da câmera", value=safe_text(row.get("ip_camera"), ""))
+                rack = col6.text_input("Rack", value=safe_text(row.get("rack"), ""))
+                st.markdown("##### Dados técnicos")
+                col7, col8, col9 = st.columns(3)
+                login_camera = col7.text_input("Login câmera", value=safe_text(row.get("login_camera"), ""))
+                senha_camera = col8.text_input("Senha câmera", value=safe_text(row.get("senha_camera"), ""), type="password")
+                serie_number = col9.text_input("Série Number", value=safe_text(row.get("serie_number"), ""))
+                col10, col11, col12 = st.columns(3)
+                modelo = col10.text_input("Modelo", value=safe_text(row.get("modelo"), ""))
+                marca = col11.text_input("Marca", value=safe_text(row.get("marca"), ""))
+                dias_gravacao = col12.number_input("Dias de gravação", min_value=0, step=1, value=safe_int(row.get("dias_gravacao")))
+                st.markdown("##### Gravação e NVR")
+                col13, col14, col15 = st.columns(3)
+                inicio_gravacao = col13.date_input("Início gravação", value=safe_date_for_input(row.get("inicio_gravacao")))
+                termino_gravacao = col14.date_input("Término gravação", value=safe_date_for_input(row.get("termino_gravacao")))
+                horario = col15.text_input("Horário", value=safe_text(row.get("horario"), ""))
+                col16, col17, col18 = st.columns(3)
+                nvr = col16.text_input("NVR", value=safe_text(row.get("nvr"), ""))
+                ip_nvr = col17.text_input("IP NVR", value=safe_text(row.get("ip_nvr"), ""))
+                login_nvr = col18.text_input("Login NVR", value=safe_text(row.get("login_nvr"), ""))
+                col19, col20, col21 = st.columns(3)
+                senha_nvr = col19.text_input("Senha NVR", value=safe_text(row.get("senha_nvr"), ""), type="password")
+                status_options = ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"]
+                current_status = safe_text(row.get("status"), "ATIVA")
+                status_idx = status_options.index(current_status) if current_status in status_options else 0
+                status = col20.selectbox("Status", status_options, index=status_idx)
+                ativo = col21.selectbox("Situação", [True, False], index=0 if bool(row.get("ativo")) else 1, format_func=lambda x: "Ativa" if x else "Inativa")
+                qualidade_options = ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"]
+                current_q = safe_text(row.get("qualidade_gravacao"), "BOA")
+                q_idx = qualidade_options.index(current_q) if current_q in qualidade_options else 0
+                qualidade_gravacao = st.selectbox("Qualidade da gravação", qualidade_options, index=q_idx)
+                observacao = st.text_area("Observação", value=safe_text(row.get("observacao"), ""))
+                acao_necessaria = st.text_area("Ação necessária", value=safe_text(row.get("acao_necessaria"), ""))
+                foto_atual = bytes_to_image_bytes(row.get("foto_camera"))
+                if foto_atual:
+                    st.image(foto_atual, caption="Foto atual", width=280)
+                foto_upload = st.file_uploader("Substituir foto da câmera", type=["png", "jpg", "jpeg", "webp"])
+                salvar = st.form_submit_button("Salvar alterações")
+                if salvar:
+                    if not nome_camera:
+                        st.error("Informe o nome da câmera.")
+                    else:
+                        foto_bytes, foto_nome = imagem_para_bytes(foto_upload)
+                        atualizar_camera_completa(camera_id, {
+                            "numero": numero, "operacao": operacao, "nome_camera": nome_camera, "canal": canal, "ip_camera": ip_camera,
+                            "login_camera": login_camera, "senha_camera": senha_camera, "modelo": modelo, "marca": marca,
+                            "inicio_gravacao": inicio_gravacao, "termino_gravacao": termino_gravacao, "dias_gravacao": dias_gravacao,
+                            "nvr": nvr, "ip_nvr": ip_nvr, "login_nvr": login_nvr, "senha_nvr": senha_nvr, "rack": rack,
+                            "status": status, "qualidade_gravacao": qualidade_gravacao, "observacao": observacao, "horario": horario,
+                            "acao_necessaria": acao_necessaria, "serie_number": serie_number, "ativo": ativo
+                        }, foto_bytes if foto_upload else None, foto_nome if foto_upload else None)
+                        st.success("Câmera atualizada com sucesso.")
+                        st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # MANUTENÇÃO / STATUS
 # =====================================================
 elif menu == "🔧 Manutenção":
     st.markdown('<div class="form-section"><h3>Manutenção e Atualização de Status</h3>', unsafe_allow_html=True)
-
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
         camera_id = st.selectbox(
             "Selecione a câmera",
             df_norm["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}'
+            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
         )
-
         status = st.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
         qualidade = st.selectbox("Qualidade", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
         observacao = st.text_area("Observação")
         acao = st.text_area("Ação necessária")
-
         if st.button("Atualizar status"):
             atualizar_status(camera_id, status, qualidade, observacao, acao)
             st.success("Status atualizado.")
             st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
-
+    st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
 # DESATIVAR / EXCLUIR
 # =====================================================
 elif menu == "🗑️ Desativar / Excluir":
     st.markdown('<div class="form-section"><h3>Desativar ou Excluir Câmera</h3>', unsafe_allow_html=True)
-
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
         camera_id = st.selectbox(
             "Selecione a câmera",
             df_norm["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}'
+            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
         )
-
         st.warning("Recomendação: use desativar para manter histórico. Excluir remove definitivamente o cadastro.")
         col1, col2, col3 = st.columns(3)
-
         if col1.button("Desativar mantendo histórico"):
             desativar_camera(camera_id)
             st.success("Câmera desativada.")
             st.rerun()
-
         if col2.button("Reativar câmera"):
             reativar_camera(camera_id)
             st.success("Câmera reativada.")
             st.rerun()
-
         if col3.button("Excluir definitivamente"):
             excluir_camera(camera_id)
             st.error("Câmera excluída definitivamente.")
             st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
 
