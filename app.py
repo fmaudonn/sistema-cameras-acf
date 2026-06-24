@@ -1,5 +1,6 @@
 import base64
 import html
+from io import BytesIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -117,6 +118,7 @@ def cadastrar_camera(dados, foto, foto_nome):
         """,
         dados,
     )
+    registrar_historico(None, "Cadastro de câmera", f"Câmera cadastrada: {dados.get('nome_camera', '')}")
 
 
 def normalizar_coluna_excel(coluna):
@@ -294,6 +296,7 @@ def importar_cameras_planilha(arquivo, modo):
         )
         inseridos += 1
 
+    registrar_historico(None, "Importação de planilha", f"Inseridos: {inseridos} | Atualizados: {atualizados} | Ignorados: {ignorados}")
     return {
         "lidos": len(registros),
         "inseridos": inseridos,
@@ -346,6 +349,7 @@ def atualizar_camera_completa(camera_id, dados, foto=None, foto_nome=None):
         """,
         payload,
     )
+    registrar_historico(int(camera_id), "Edição de câmera", "Dados técnicos/foto atualizados")
 
 
 def atualizar_status(camera_id, status, qualidade, observacao, acao):
@@ -367,6 +371,7 @@ def atualizar_status(camera_id, status, qualidade, observacao, acao):
             "acao": acao,
         },
     )
+    registrar_historico(int(camera_id), "Atualização de status", f"Status: {status} | Qualidade: {qualidade}")
 
 
 def desativar_camera(camera_id):
@@ -380,6 +385,7 @@ def desativar_camera(camera_id):
         """,
         {"id": camera_id},
     )
+    registrar_historico(int(camera_id), "Desativação", "Câmera desativada mantendo histórico")
 
 
 def reativar_camera(camera_id):
@@ -393,10 +399,170 @@ def reativar_camera(camera_id):
         """,
         {"id": camera_id},
     )
+    registrar_historico(int(camera_id), "Reativação", "Câmera reativada")
 
 
 def excluir_camera(camera_id):
+    registrar_historico(int(camera_id), "Exclusão definitiva", "Registro removido da base")
     executar_sql("DELETE FROM cameras WHERE id = :id", {"id": camera_id})
+
+
+# =====================================================
+# TABELAS COMPLEMENTARES: HISTÓRICO, MANUTENÇÃO, EXPANSÃO E BACKUP
+# =====================================================
+def garantir_tabelas_complementares():
+    executar_sql(
+        """
+        CREATE TABLE IF NOT EXISTS camera_audit_log (
+            id SERIAL PRIMARY KEY,
+            camera_id INTEGER,
+            acao TEXT NOT NULL,
+            detalhe TEXT,
+            usuario TEXT DEFAULT 'Sistema',
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    executar_sql(
+        """
+        CREATE TABLE IF NOT EXISTS camera_maintenance (
+            id SERIAL PRIMARY KEY,
+            camera_id INTEGER,
+            tipo TEXT,
+            prioridade TEXT,
+            descricao TEXT,
+            responsavel TEXT,
+            status TEXT DEFAULT 'ABERTO',
+            prazo DATE,
+            criado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    executar_sql(
+        """
+        CREATE TABLE IF NOT EXISTS camera_expansion_plan (
+            id SERIAL PRIMARY KEY,
+            operacao TEXT UNIQUE,
+            meta INTEGER DEFAULT 0,
+            observacao TEXT,
+            atualizado_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+
+
+def registrar_historico(camera_id, acao, detalhe="", usuario="Sistema"):
+    try:
+        executar_sql(
+            """
+            INSERT INTO camera_audit_log (camera_id, acao, detalhe, usuario)
+            VALUES (:camera_id, :acao, :detalhe, :usuario)
+            """,
+            {"camera_id": camera_id, "acao": acao, "detalhe": detalhe, "usuario": usuario},
+        )
+    except Exception:
+        pass
+
+
+def carregar_historico(limit=300):
+    try:
+        return consultar_df(
+            """
+            SELECT h.id, h.camera_id, c.numero, c.operacao, c.nome_camera,
+                   h.acao, h.detalhe, h.usuario, h.criado_em
+            FROM camera_audit_log h
+            LEFT JOIN cameras c ON c.id = h.camera_id
+            ORDER BY h.criado_em DESC, h.id DESC
+            LIMIT :limit
+            """,
+            {"limit": limit},
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+def registrar_manutencao(camera_id, tipo, prioridade, descricao, responsavel, status, prazo):
+    executar_sql(
+        """
+        INSERT INTO camera_maintenance (camera_id, tipo, prioridade, descricao, responsavel, status, prazo)
+        VALUES (:camera_id, :tipo, :prioridade, :descricao, :responsavel, :status, :prazo)
+        """,
+        {
+            "camera_id": camera_id,
+            "tipo": tipo,
+            "prioridade": prioridade,
+            "descricao": descricao,
+            "responsavel": responsavel,
+            "status": status,
+            "prazo": prazo,
+        },
+    )
+    registrar_historico(camera_id, "Registro de manutenção", f"{tipo} | {prioridade} | {status}")
+
+
+def atualizar_status_manutencao(manutencao_id, status):
+    executar_sql(
+        """
+        UPDATE camera_maintenance
+        SET status = :status, atualizado_em = CURRENT_TIMESTAMP
+        WHERE id = :id
+        """,
+        {"id": int(manutencao_id), "status": status},
+    )
+
+
+def carregar_manutencoes():
+    try:
+        return consultar_df(
+            """
+            SELECT m.id, m.camera_id, c.numero, c.operacao, c.nome_camera,
+                   m.tipo, m.prioridade, m.descricao, m.responsavel, m.status, m.prazo,
+                   m.criado_em, m.atualizado_em
+            FROM camera_maintenance m
+            LEFT JOIN cameras c ON c.id = m.camera_id
+            ORDER BY m.criado_em DESC, m.id DESC
+            """
+        )
+    except Exception:
+        return pd.DataFrame()
+
+
+def carregar_expansao():
+    try:
+        return consultar_df("SELECT id, operacao, meta, observacao, atualizado_em FROM camera_expansion_plan ORDER BY operacao")
+    except Exception:
+        return pd.DataFrame()
+
+
+def salvar_meta_expansao(operacao, meta, observacao):
+    executar_sql(
+        """
+        INSERT INTO camera_expansion_plan (operacao, meta, observacao, atualizado_em)
+        VALUES (:operacao, :meta, :observacao, CURRENT_TIMESTAMP)
+        ON CONFLICT (operacao)
+        DO UPDATE SET meta = EXCLUDED.meta, observacao = EXCLUDED.observacao, atualizado_em = CURRENT_TIMESTAMP
+        """,
+        {"operacao": operacao, "meta": int(meta), "observacao": observacao},
+    )
+    registrar_historico(None, "Plano de expansão", f"{operacao}: meta {meta}")
+
+
+def gerar_backup_excel(df_base):
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_base.to_excel(writer, sheet_name="cameras", index=False)
+        hist = carregar_historico(5000)
+        if not hist.empty:
+            hist.to_excel(writer, sheet_name="historico", index=False)
+        manut = carregar_manutencoes()
+        if not manut.empty:
+            manut.to_excel(writer, sheet_name="manutencao", index=False)
+        exp = carregar_expansao()
+        if not exp.empty:
+            exp.to_excel(writer, sheet_name="expansao", index=False)
+    output.seek(0)
+    return output
 
 # =====================================================
 # FUNÇÕES AUXILIARES
@@ -1096,6 +1262,7 @@ hr { border-color: var(--border); }
 # =====================================================
 # DADOS E MÉTRICAS
 # =====================================================
+garantir_tabelas_complementares()
 df = carregar_cameras()
 df_norm_all = normalizar_base(df)
 df_norm = cameras_unicas_por_numero(df)
@@ -1125,6 +1292,9 @@ menu = st.sidebar.radio(
         "📥 Importar Planilha",
         "✏️ Editar Câmera",
         "🔧 Manutenção",
+        "📈 Expansão do Parque",
+        "📄 Backup",
+        "🧾 Histórico",
         "🗑️ Desativar / Excluir",
     ],
     label_visibility="collapsed",
@@ -1631,7 +1801,7 @@ elif menu == "✏️ Editar Câmera":
 # MANUTENÇÃO / STATUS
 # =====================================================
 elif menu == "🔧 Manutenção":
-    st.markdown('<div class="form-section"><h3>Manutenção e Atualização de Status</h3>', unsafe_allow_html=True)
+    st.markdown('<div class="form-section"><h3>Gestão de Manutenção</h3><p>Atualize status operacional e registre tratativas técnicas.</p>', unsafe_allow_html=True)
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
@@ -1640,14 +1810,108 @@ elif menu == "🔧 Manutenção":
             df_norm["id"].tolist(),
             format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
         )
-        status = st.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
-        qualidade = st.selectbox("Qualidade", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
+        st.markdown("#### Atualização rápida de status")
+        colm1, colm2 = st.columns(2)
+        status = colm1.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
+        qualidade = colm2.selectbox("Qualidade", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
         observacao = st.text_area("Observação")
         acao = st.text_area("Ação necessária")
         if st.button("Atualizar status"):
             atualizar_status(camera_id, status, qualidade, observacao, acao)
             st.success("Status atualizado.")
             st.rerun()
+
+        st.divider()
+        st.markdown("#### Registrar manutenção / chamado")
+        with st.form("form_manutencao"):
+            c1, c2, c3 = st.columns(3)
+            tipo_m = c1.selectbox("Tipo", ["Preventiva", "Corretiva", "Substituição", "Ajuste de imagem", "NVR/Gravação", "Outro"])
+            prioridade_m = c2.selectbox("Prioridade", ["Baixa", "Média", "Alta", "Crítica"])
+            status_m = c3.selectbox("Status do chamado", ["ABERTO", "EM ANDAMENTO", "CONCLUÍDO", "CANCELADO"])
+            descricao_m = st.text_area("Descrição da tratativa")
+            c4, c5 = st.columns(2)
+            responsavel_m = c4.text_input("Responsável")
+            prazo_m = c5.date_input("Prazo", value=br_now().date())
+            salvar_m = st.form_submit_button("Registrar manutenção")
+            if salvar_m:
+                registrar_manutencao(camera_id, tipo_m, prioridade_m, descricao_m, responsavel_m, status_m, prazo_m)
+                st.success("Manutenção registrada.")
+                st.rerun()
+
+    manut_df = carregar_manutencoes()
+    st.divider()
+    st.markdown("#### Histórico de manutenções")
+    if manut_df.empty:
+        st.info("Nenhuma manutenção registrada.")
+    else:
+        st.dataframe(manut_df, use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =====================================================
+# EXPANSÃO DO PARQUE
+# =====================================================
+elif menu == "📈 Expansão do Parque":
+    st.markdown('<div class="form-section"><h3>Planejamento de Expansão do Parque de Câmeras</h3><p>Cadastre metas por operação para comparar parque atual x necessidade futura.</p>', unsafe_allow_html=True)
+    ops_atuais = sorted([x for x in df_norm["operacao"].dropna().unique().tolist() if safe_text(x, "")]) if not df_norm.empty else []
+    exp_df = carregar_expansao()
+
+    with st.form("form_expansao"):
+        col1, col2, col3 = st.columns([2, 1, 3])
+        operacao_exp = col1.selectbox("Operação", ops_atuais + ["Outra"], index=0 if ops_atuais else None)
+        if operacao_exp == "Outra" or not ops_atuais:
+            operacao_exp = col1.text_input("Nome da nova operação")
+        meta_exp = col2.number_input("Meta de câmeras", min_value=0, step=1)
+        obs_exp = col3.text_input("Observação")
+        salvar_exp = st.form_submit_button("Salvar meta")
+        if salvar_exp:
+            if not operacao_exp:
+                st.error("Informe a operação.")
+            else:
+                salvar_meta_expansao(operacao_exp, meta_exp, obs_exp)
+                st.success("Meta salva com sucesso.")
+                st.rerun()
+
+    if not df_norm.empty:
+        atual = df_norm.groupby("operacao", dropna=False).size().reset_index(name="atual")
+        if not exp_df.empty:
+            resumo_exp = atual.merge(exp_df[["operacao", "meta", "observacao"]], on="operacao", how="outer").fillna({"atual": 0, "meta": 0, "observacao": ""})
+        else:
+            resumo_exp = atual.copy()
+            resumo_exp["meta"] = 0
+            resumo_exp["observacao"] = ""
+        resumo_exp["atual"] = pd.to_numeric(resumo_exp["atual"], errors="coerce").fillna(0).astype(int)
+        resumo_exp["meta"] = pd.to_numeric(resumo_exp["meta"], errors="coerce").fillna(0).astype(int)
+        resumo_exp["incremento_necessario"] = (resumo_exp["meta"] - resumo_exp["atual"]).clip(lower=0)
+        resumo_exp["atingimento_%"] = resumo_exp.apply(lambda r: round((r["atual"] / r["meta"]) * 100, 1) if r["meta"] else 0, axis=1)
+        st.dataframe(resumo_exp[["operacao", "atual", "meta", "incremento_necessario", "atingimento_%", "observacao"]], use_container_width=True, hide_index=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =====================================================
+# BACKUP
+# =====================================================
+elif menu == "📄 Backup":
+    st.markdown('<div class="form-section"><h3>Backup e Exportação</h3><p>Baixe uma cópia completa dos dados do sistema em Excel.</p>', unsafe_allow_html=True)
+    backup = gerar_backup_excel(df)
+    nome_backup = f"backup_cameras_acf_{br_now().strftime('%Y%m%d_%H%M')}.xlsx"
+    st.download_button(
+        "Baixar backup completo",
+        data=backup,
+        file_name=nome_backup,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    st.info("O backup inclui câmeras, histórico, manutenção e plano de expansão, quando houver dados.")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# =====================================================
+# HISTÓRICO DE ALTERAÇÕES
+# =====================================================
+elif menu == "🧾 Histórico":
+    st.markdown('<div class="form-section"><h3>Histórico de Alterações</h3><p>Rastreabilidade das principais ações realizadas no sistema.</p>', unsafe_allow_html=True)
+    hist = carregar_historico(1000)
+    if hist.empty:
+        st.info("Ainda não há histórico registrado.")
+    else:
+        st.dataframe(hist, use_container_width=True, hide_index=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
