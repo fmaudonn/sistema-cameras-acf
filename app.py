@@ -9,7 +9,7 @@ st.set_page_config(
     page_title="ACF Command Center",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 DATABASE_URL = st.secrets["DATABASE_URL"]
