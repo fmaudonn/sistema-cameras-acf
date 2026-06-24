@@ -119,6 +119,186 @@ def cadastrar_camera(dados, foto, foto_nome):
     )
 
 
+def normalizar_coluna_excel(coluna):
+    """Normaliza cabeçalhos da planilha para facilitar o mapeamento."""
+    import unicodedata
+
+    txt = str(coluna).strip().upper()
+    txt = unicodedata.normalize("NFKD", txt).encode("ASCII", "ignore").decode("ASCII")
+    txt = txt.replace("º", "").replace("°", "")
+    txt = " ".join(txt.split())
+    return txt
+
+
+def valor_excel(row, aliases, default=None):
+    for alias in aliases:
+        if alias in row.index:
+            value = row.get(alias)
+            if value is not None and not pd.isna(value):
+                return value
+    return default
+
+
+def texto_importacao(value, default=""):
+    if value is None or pd.isna(value):
+        return default
+    value = str(value).strip()
+    if value.lower() in ["nan", "none", "null"]:
+        return default
+    return value
+
+
+def inteiro_importacao(value, default=0):
+    try:
+        if value is None or pd.isna(value) or str(value).strip() == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def data_importacao(value):
+    if value is None or pd.isna(value) or str(value).strip() == "":
+        return None
+    try:
+        return pd.to_datetime(value).date()
+    except Exception:
+        return None
+
+
+def montar_payload_importacao(row):
+    status = texto_importacao(valor_excel(row, ["STATUS"]), "ATIVA").upper()
+    qualidade = texto_importacao(valor_excel(row, ["QUALIDADE GRAVACAO", "QUALIDADE GRAVAÇÃO"]), "BOA").upper()
+
+    return {
+        "numero": inteiro_importacao(valor_excel(row, ["N", "N°", "Nº", "NUMERO", "NÚMERO"])),
+        "operacao": texto_importacao(valor_excel(row, ["OPERACAO", "OPERAÇÃO"])),
+        "nome_camera": texto_importacao(valor_excel(row, ["NOME CAM", "NOME CAMERA", "NOME CÂMERA", "CAMERA", "CÂMERA"])),
+        "canal": texto_importacao(valor_excel(row, ["CANAL"])),
+        "ip_camera": texto_importacao(valor_excel(row, ["IP CAMERA", "IP CAMERA", "IP CÂMERA", "IP"])),
+        "login_camera": texto_importacao(valor_excel(row, ["LOGIN", "LOGIN CAMERA", "LOGIN CÂMERA"])),
+        "senha_camera": texto_importacao(valor_excel(row, ["SENHA", "SENHA CAMERA", "SENHA CÂMERA"])),
+        "modelo": texto_importacao(valor_excel(row, ["MODELO"])),
+        "marca": texto_importacao(valor_excel(row, ["MARCA CAM", "MARCA", "FABRICANTE"])),
+        "inicio_gravacao": data_importacao(valor_excel(row, ["INICIO GRAV", "INÍCIO GRAV", "INICIO GRAVACAO", "INÍCIO GRAVAÇÃO"])),
+        "termino_gravacao": data_importacao(valor_excel(row, ["TERM GRAV", "TERMINO GRAV", "TÉRMINO GRAV", "TERMINO GRAVACAO", "TÉRMINO GRAVAÇÃO"])),
+        "dias_gravacao": inteiro_importacao(valor_excel(row, ["DIAS DE GRAVACAO", "DIAS DE GRAVAÇÃO", "DIAS GRAVACAO", "DIAS GRAVAÇÃO"])),
+        "nvr": texto_importacao(valor_excel(row, ["NVR"])),
+        "ip_nvr": texto_importacao(valor_excel(row, ["IP NVR"])),
+        "login_nvr": texto_importacao(valor_excel(row, ["LOGIN NVR"])),
+        "senha_nvr": texto_importacao(valor_excel(row, ["SENHA NVR"])),
+        "rack": texto_importacao(valor_excel(row, ["RACK"])),
+        "status": status if status else "ATIVA",
+        "qualidade_gravacao": qualidade if qualidade else "BOA",
+        "observacao": texto_importacao(valor_excel(row, ["OBSE", "OBS", "OBSERVACAO", "OBSERVAÇÃO"])),
+        "horario": texto_importacao(valor_excel(row, ["HORARIO", "HORÁRIO"])),
+        "acao_necessaria": texto_importacao(valor_excel(row, ["ACAO NECESSARIA", "AÇÃO NECESSÁRIA", "ACAO", "AÇÃO"])),
+        "serie_number": texto_importacao(valor_excel(row, ["SERIE NUMBER", "SÉRIE NUMBER", "SERIAL", "NUMERO SERIE", "NÚMERO SÉRIE"])),
+        "foto_camera": None,
+        "foto_nome": None,
+    }
+
+
+def preparar_planilha_importacao(arquivo):
+    raw = pd.read_excel(arquivo, sheet_name=0)
+    raw = raw.dropna(how="all")
+    raw.columns = [normalizar_coluna_excel(c) for c in raw.columns]
+
+    registros = []
+    rejeitados = []
+    for idx, row in raw.iterrows():
+        payload = montar_payload_importacao(row)
+        if not payload["nome_camera"]:
+            rejeitados.append({"linha_excel": int(idx) + 2, "motivo": "Nome da câmera vazio"})
+            continue
+        registros.append(payload)
+    return registros, rejeitados
+
+
+def importar_cameras_planilha(arquivo, modo):
+    registros, rejeitados = preparar_planilha_importacao(arquivo)
+    inseridos = 0
+    atualizados = 0
+    ignorados = 0
+
+    for payload in registros:
+        ip = payload.get("ip_camera", "").strip()
+        existente = pd.DataFrame()
+        if ip:
+            existente = consultar_df("SELECT id FROM cameras WHERE ip_camera = :ip LIMIT 1", {"ip": ip})
+
+        if not existente.empty and modo == "Ignorar IPs já cadastrados":
+            ignorados += 1
+            continue
+
+        if not existente.empty and modo == "Atualizar pelo IP da câmera":
+            payload_update = dict(payload)
+            payload_update["id"] = int(existente.iloc[0]["id"])
+            executar_sql(
+                """
+                UPDATE cameras
+                SET
+                    numero = :numero,
+                    operacao = :operacao,
+                    nome_camera = :nome_camera,
+                    canal = :canal,
+                    login_camera = :login_camera,
+                    senha_camera = :senha_camera,
+                    modelo = :modelo,
+                    marca = :marca,
+                    inicio_gravacao = :inicio_gravacao,
+                    termino_gravacao = :termino_gravacao,
+                    dias_gravacao = :dias_gravacao,
+                    nvr = :nvr,
+                    ip_nvr = :ip_nvr,
+                    login_nvr = :login_nvr,
+                    senha_nvr = :senha_nvr,
+                    rack = :rack,
+                    status = :status,
+                    qualidade_gravacao = :qualidade_gravacao,
+                    observacao = :observacao,
+                    horario = :horario,
+                    acao_necessaria = :acao_necessaria,
+                    serie_number = :serie_number,
+                    ativo = TRUE,
+                    atualizado_em = CURRENT_TIMESTAMP
+                WHERE id = :id
+                """,
+                payload_update,
+            )
+            atualizados += 1
+            continue
+
+        executar_sql(
+            """
+            INSERT INTO cameras (
+                numero, operacao, nome_camera, canal, ip_camera, login_camera, senha_camera,
+                modelo, marca, inicio_gravacao, termino_gravacao, dias_gravacao,
+                nvr, ip_nvr, login_nvr, senha_nvr, rack, status, qualidade_gravacao,
+                observacao, horario, acao_necessaria, serie_number, foto_camera, foto_nome,
+                ativo, atualizado_em
+            )
+            VALUES (
+                :numero, :operacao, :nome_camera, :canal, :ip_camera, :login_camera, :senha_camera,
+                :modelo, :marca, :inicio_gravacao, :termino_gravacao, :dias_gravacao,
+                :nvr, :ip_nvr, :login_nvr, :senha_nvr, :rack, :status, :qualidade_gravacao,
+                :observacao, :horario, :acao_necessaria, :serie_number, :foto_camera, :foto_nome,
+                TRUE, CURRENT_TIMESTAMP
+            )
+            """,
+            payload,
+        )
+        inseridos += 1
+
+    return {
+        "lidos": len(registros),
+        "inseridos": inseridos,
+        "atualizados": atualizados,
+        "ignorados": ignorados,
+        "rejeitados": rejeitados,
+    }
+
+
 def atualizar_camera_completa(camera_id, dados, foto=None, foto_nome=None):
     payload = dict(dados)
     payload["id"] = int(camera_id)
@@ -725,6 +905,7 @@ menu = st.sidebar.radio(
         "📷 Inventário Técnico",
         "🖼️ Book Visual",
         "➕ Nova Câmera",
+        "📥 Importar Planilha",
         "✏️ Editar Câmera",
         "🔧 Manutenção",
         "🗑️ Desativar / Excluir",
@@ -1018,6 +1199,80 @@ elif menu == "➕ Nova Câmera":
                 st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
+
+# =====================================================
+# IMPORTAR PLANILHA
+# =====================================================
+elif menu == "📥 Importar Planilha":
+    st.markdown(
+        '<div class="form-section"><h3>Importação em Lote de Câmeras</h3>',
+        unsafe_allow_html=True,
+    )
+    st.write(
+        "Envie a planilha Excel no modelo atual do controle de câmeras. "
+        "O sistema importará os campos técnicos para o banco Neon. Imagens não são importadas por planilha; "
+        "elas podem ser adicionadas depois na aba **Editar Câmera**."
+    )
+
+    arquivo_importacao = st.file_uploader(
+        "Upload da planilha de câmeras (.xlsx)",
+        type=["xlsx"],
+        key="upload_planilha_cameras",
+    )
+
+    modo_importacao = st.selectbox(
+        "Modo de importação",
+        [
+            "Ignorar IPs já cadastrados",
+            "Atualizar pelo IP da câmera",
+            "Adicionar tudo mesmo se houver duplicidade",
+        ],
+        help="Recomendado: usar 'Atualizar pelo IP da câmera' quando estiver subindo uma planilha atualizada do inventário.",
+    )
+
+    if arquivo_importacao is not None:
+        try:
+            registros_preview, rejeitados_preview = preparar_planilha_importacao(arquivo_importacao)
+            preview_df = pd.DataFrame(registros_preview)
+            st.success(f"Planilha lida com sucesso: {len(registros_preview)} câmera(s) válida(s) encontradas.")
+
+            if rejeitados_preview:
+                st.warning(f"{len(rejeitados_preview)} linha(s) serão ignoradas por inconsistência.")
+                st.dataframe(pd.DataFrame(rejeitados_preview), use_container_width=True, hide_index=True)
+
+            if not preview_df.empty:
+                cols_preview = [
+                    "numero", "operacao", "nome_camera", "canal", "ip_camera", "modelo", "marca",
+                    "dias_gravacao", "nvr", "ip_nvr", "rack", "status", "qualidade_gravacao", "observacao",
+                    "acao_necessaria", "serie_number"
+                ]
+                cols_preview = [c for c in cols_preview if c in preview_df.columns]
+                st.markdown("#### Prévia dos dados que serão importados")
+                st.dataframe(preview_df[cols_preview].head(50), use_container_width=True, hide_index=True)
+
+                confirmar = st.checkbox(
+                    "Confirmo que revisei a prévia e desejo importar os dados para o banco Neon.",
+                    value=False,
+                )
+
+                if st.button("Importar câmeras em lote", disabled=not confirmar):
+                    arquivo_importacao.seek(0)
+                    resultado = importar_cameras_planilha(arquivo_importacao, modo_importacao)
+                    st.success(
+                        f"Importação concluída. Inseridas: {resultado['inseridos']} | "
+                        f"Atualizadas: {resultado['atualizados']} | Ignoradas: {resultado['ignorados']} | "
+                        f"Linhas rejeitadas: {len(resultado['rejeitados'])}"
+                    )
+                    st.cache_data.clear()
+                    st.rerun()
+        except Exception as e:
+            st.error("Não foi possível importar a planilha. Verifique se o arquivo está no modelo correto.")
+            st.exception(e)
+    else:
+        st.info("Aguardando envio da planilha Excel.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
 # =====================================================
 # EDITAR CÂMERA
 # =====================================================
@@ -1149,5 +1404,3 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
-
