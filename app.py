@@ -433,11 +433,19 @@ def safe_date_for_input(value):
 
 
 def acao_pendente_valida(value):
+    """Retorna True somente quando a ação necessária representa uma pendência real.
+    Valores administrativos como "Não informado", "N/A" e "OK" são ignorados.
+    """
+    import unicodedata
+
     txt = safe_text(value, "").strip().upper()
-    txt = txt.replace("Ã", "A").replace("Õ", "O")
+    txt = unicodedata.normalize("NFKD", txt).encode("ASCII", "ignore").decode("ASCII")
+    txt = " ".join(txt.replace(".", " ").replace("-", " ").replace("_", " ").split())
     sem_pendencia = {
-        "", "NAO", "NÃO", "N/A", "NA", "NONE", "NULL", "NAN", "OK", "SEM ACAO",
-        "SEM AÇÃO", "NENHUMA", "NAO SE APLICA", "NÃO SE APLICA", "-", "."
+        "", "NAO", "N", "N/A", "NA", "NONE", "NULL", "NAN", "OK", "O K",
+        "SEM ACAO", "SEM ACOES", "NENHUMA", "NENHUM", "NAO SE APLICA",
+        "NAO APLICA", "NAO INFORMADO", "NAO INFORMADA", "INFORMADO",
+        "SEM INFORMACAO", "SEM INFORMACOES"
     }
     return txt not in sem_pendencia
 
@@ -477,7 +485,11 @@ def normalizar_base(df):
     out["is_falha"] = out["status_upper"].str.contains("FALHA", na=False) | out["qualidade_upper"].str.contains(
         "RUIM|SEM IMAGEM", na=False
     )
+    out["is_manutencao"] = out["status_upper"].str.contains("MANUT", na=False)
     out["has_pendencia"] = out["acao_necessaria"].apply(acao_pendente_valida)
+    # Criticidade real: problemas técnicos/status/qualidade ou ação relevante.
+    # Câmeras apenas INATIVAS ficam em card próprio e não inflam a lista de pendências.
+    out["is_critica"] = out["has_pendencia"] | out["is_falha"] | out["is_sem_gravacao"] | out["is_manutencao"]
     return out
 
 
@@ -521,7 +533,7 @@ def calcular_metricas(df):
     total = len(base)
     ativas = int(base["is_ativa"].sum())
     inativas = int(base["is_inativa"].sum())
-    pendencias = int(base["has_pendencia"].sum())
+    pendencias = int(base["is_critica"].sum())
     sem_gravacao = int(base["is_sem_gravacao"].sum())
     falhas = int((base["is_falha"] | base["is_sem_gravacao"]).sum())
     disponibilidade = round((ativas / total) * 100, 1) if total else 0
@@ -572,11 +584,67 @@ def configurar_figura(fig, height=360):
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#FFFFFF",
         font=dict(color="#1F2937", family="Inter", size=13),
-        margin=dict(l=12, r=26, t=18, b=32),
-        bargap=0.34,
+        margin=dict(l=8, r=18, t=10, b=24),
+        bargap=0.28,
+        hoverlabel=dict(bgcolor="#111827", font_color="#FFFFFF", bordercolor="#111827"),
     )
-    fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12))
-    fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12))
+    fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12), showline=False)
+    fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12), showline=False)
+    return fig
+
+
+def cor_disponibilidade(valor):
+    if valor >= 98:
+        return "#0E9F6E"
+    if valor >= 95:
+        return "#F59E0B"
+    return "#D40511"
+
+
+def cor_risco(valor):
+    if valor <= 0:
+        return "#0E9F6E"
+    if valor <= 2:
+        return "#F59E0B"
+    return "#D40511"
+
+
+def grafico_barra_executivo(df_plot, x, y, texto=None, modo="dhl", altura=360, sufixo=""):
+    if df_plot.empty:
+        return go.Figure()
+    valores = pd.to_numeric(df_plot[x], errors="coerce").fillna(0)
+    if modo == "disp":
+        cores = [cor_disponibilidade(v) for v in valores]
+    elif modo == "risco":
+        cores = [cor_risco(v) for v in valores]
+    elif modo == "nvr":
+        maxv = max(float(valores.max()), 1)
+        cores = ["#D40511" if v >= maxv * 0.85 else "#F59E0B" if v >= maxv * 0.60 else "#FFCC00" for v in valores]
+    else:
+        cores = ["#D40511" if i == len(valores)-1 else "#FFCC00" for i in range(len(valores))]
+    text_values = [f"{v:.1f}{sufixo}" if isinstance(v, float) and not float(v).is_integer() else f"{int(v)}{sufixo}" for v in valores]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=valores,
+        y=df_plot[y].astype(str),
+        orientation="h",
+        text=text_values if texto is None else df_plot[texto].astype(str),
+        textposition="outside",
+        marker=dict(color=cores, line=dict(width=0), cornerradius=8),
+        hovertemplate="<b>%{y}</b><br>Valor: %{x}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=altura,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#1F2937", family="Inter", size=13),
+        margin=dict(l=8, r=38, t=8, b=26),
+        bargap=0.38,
+        showlegend=False,
+        hoverlabel=dict(bgcolor="#111827", font_color="#FFFFFF"),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#EEF2F7", zeroline=False, title="")
+    fig.update_yaxes(showgrid=False, title="", automargin=True)
     return fig
 
 
@@ -907,6 +975,69 @@ input, textarea { border-radius: 12px !important; }
 div[data-baseweb="select"] > div { border-radius: 12px !important; }
 hr { border-color: var(--border); }
 @media (max-width: 1200px) { .app-header-grid { grid-template-columns: 1fr; } }
+
+.metric-strip {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 10px;
+}
+.metric-strip-item {
+    background: #F9FAFB;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 12px 14px;
+}
+.metric-strip-label {
+    color: var(--muted);
+    font-size: 10px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: .10em;
+}
+.metric-strip-value {
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 900;
+    margin-top: 4px;
+}
+.executive-note {
+    background: #FFF7CC;
+    border: 1px solid #FDE68A;
+    border-left: 6px solid var(--dhl-yellow);
+    border-radius: 18px;
+    padding: 14px 16px;
+    font-size: 13px;
+    color: #3F3F46;
+    font-weight: 650;
+    margin-bottom: 16px;
+}
+.status-summary-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    margin-top: 8px;
+}
+.status-summary-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    background: #F9FAFB;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 11px 12px;
+}
+.status-summary-name {
+    font-weight: 900;
+    color: var(--text);
+}
+.status-summary-count {
+    font-weight: 900;
+    color: var(--dhl-red);
+    font-size: 18px;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -999,123 +1130,133 @@ st.markdown(
 # =====================================================
 if menu == "📊 Dashboard Executivo":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas["disponibilidade"] >= 95 else "danger"), unsafe_allow_html=True)
-    c2.markdown(kpi_card("Total", metricas["total"], "câmeras únicas por Nº"), unsafe_allow_html=True)
+    c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas["disponibilidade"] >= 98 else "warning" if metricas["disponibilidade"] >= 95 else "danger"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Câmeras únicas", metricas["total"], "base por Nº/IP"), unsafe_allow_html=True)
     c3.markdown(kpi_card("Ativas", metricas["ativas"], "em operação", "success"), unsafe_allow_html=True)
     c4.markdown(kpi_card("Inativas", metricas["inativas"], "fora de operação", "warning" if metricas["inativas"] > 0 else "success"), unsafe_allow_html=True)
     c5.markdown(kpi_card("Sem gravação", metricas["sem_gravacao"], "falha crítica", "danger" if metricas["sem_gravacao"] > 0 else "success"), unsafe_allow_html=True)
-    c6.markdown(kpi_card("Pendências", metricas["pendencias"], "ação necessária", "danger" if metricas["pendencias"] > 0 else "success"), unsafe_allow_html=True)
+    c6.markdown(kpi_card("Pendências reais", metricas["pendencias"], "falha/manutenção/ação", "danger" if metricas["pendencias"] > 0 else "success"), unsafe_allow_html=True)
 
     st.write("")
 
     if df_norm.empty:
         st.info("Nenhuma câmera cadastrada ainda.")
     else:
-        template = "plotly_white"
         op = df_norm.groupby("operacao", dropna=False).agg(
             total=("id", "count"),
             ativas=("is_ativa", "sum"),
             inativas=("is_inativa", "sum"),
             falhas=("is_falha", "sum"),
             sem_gravacao=("is_sem_gravacao", "sum"),
-            pendencias=("has_pendencia", "sum"),
+            pendencias=("is_critica", "sum"),
         ).reset_index()
         op["disponibilidade"] = (op["ativas"] / op["total"] * 100).round(1)
         op["risco"] = op["falhas"] + op["sem_gravacao"] + op["pendencias"] + op["inativas"]
-        op_disp = op.sort_values("disponibilidade", ascending=True)
-        op_qtd = op.sort_values("total", ascending=True)
+        op["risco_nivel"] = op["risco"].apply(lambda v: "Alto" if v >= 4 else "Médio" if v >= 1 else "Baixo")
 
-        col1, col2 = st.columns([1.2, 1])
+        registros_totais = len(df_norm_all)
+        duplicidades = max(registros_totais - metricas["total"], 0)
+        nvr_count = metricas.get("nvrs", 0)
+        st.markdown(
+            f'''
+            <div class="executive-note">
+                Os indicadores do dashboard usam câmeras únicas por Nº/IP para evitar distorções por importações duplicadas. Registros totais no banco: <b>{registros_totais}</b> • Possíveis duplicidades: <b>{duplicidades}</b> • NVRs identificados: <b>{nvr_count}</b>.
+            </div>
+            ''',
+            unsafe_allow_html=True,
+        )
+
+        col1, col2 = st.columns([1.08, 1])
         with col1:
-            st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking operacional calculado sobre câmeras únicas por Nº.</div>', unsafe_allow_html=True)
-            fig_op = px.bar(
-                op_disp,
-                x="disponibilidade",
-                y="operacao",
-                orientation="h",
-                text="disponibilidade",
-                color="disponibilidade",
-                color_continuous_scale=[[0, "#D40511"], [0.55, "#F59E0B"], [1, "#0E9F6E"]],
-                range_x=[0, 100],
-                template=template,
-                labels={"disponibilidade": "Disponibilidade (%)", "operacao": "Operação"},
-            )
-            fig_op.update_traces(texttemplate="%{text:.1f}%", textposition="outside", marker_line_width=0, width=0.58)
-            fig_op.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Disponibilidade (%)", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_op, 380), use_container_width=True)
+            st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking para priorização operacional e manutenção.</div>', unsafe_allow_html=True)
+            op_disp = op.sort_values("disponibilidade", ascending=True)
+            fig_op = grafico_barra_executivo(op_disp, "disponibilidade", "operacao", modo="disp", altura=360, sufixo="%")
+            fig_op.update_xaxes(range=[0, 105], title="Disponibilidade (%)")
+            st.plotly_chart(fig_op, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
-            st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Distribuição consolidada por status operacional.</div>', unsafe_allow_html=True)
-            status_df = df_norm.groupby("status", dropna=False).size().reset_index(name="total")
-            fig_status = px.pie(
-                status_df,
-                names="status",
-                values="total",
-                hole=0.62,
-                template=template,
-                color="status",
-                color_discrete_map={"ATIVA":"#0E9F6E", "INATIVA":"#FFCC00", "FALHA":"#D40511", "SEM GRAVAÇÃO":"#D40511", "MANUTENÇÃO":"#F59E0B"},
+            st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Leitura executiva sem gráfico pizza.</div>', unsafe_allow_html=True)
+            disp = metricas["disponibilidade"]
+            gauge_color = cor_disponibilidade(disp)
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=disp,
+                number={"suffix": "%", "font": {"size": 44, "color": gauge_color}},
+                gauge={
+                    "axis": {"range": [0, 100], "tickwidth": 0, "tickcolor": "#CBD5E1"},
+                    "bar": {"color": gauge_color, "thickness": 0.22},
+                    "bgcolor": "#F9FAFB",
+                    "borderwidth": 0,
+                    "steps": [
+                        {"range": [0, 95], "color": "#FEE2E2"},
+                        {"range": [95, 98], "color": "#FEF3C7"},
+                        {"range": [98, 100], "color": "#DCFCE7"},
+                    ],
+                    "threshold": {"line": {"color": "#111827", "width": 3}, "thickness": 0.75, "value": 98},
+                },
+                title={"text": "Disponibilidade geral", "font": {"size": 14, "color": "#6B7280"}},
+            ))
+            fig_gauge.update_layout(height=250, margin=dict(l=18, r=18, t=36, b=8), paper_bgcolor="rgba(0,0,0,0)", font=dict(family="Inter"))
+            st.plotly_chart(fig_gauge, use_container_width=True)
+            st.markdown(
+                f'''
+                <div class="metric-strip">
+                    <div class="metric-strip-item"><div class="metric-strip-label">Ativas</div><div class="metric-strip-value" style="color:#0E9F6E">{metricas['ativas']}</div></div>
+                    <div class="metric-strip-item"><div class="metric-strip-label">Inativas</div><div class="metric-strip-value" style="color:#F59E0B">{metricas['inativas']}</div></div>
+                    <div class="metric-strip-item"><div class="metric-strip-label">Falhas</div><div class="metric-strip-value" style="color:#D40511">{metricas['falhas']}</div></div>
+                    <div class="metric-strip-item"><div class="metric-strip-label">Sem gravação</div><div class="metric-strip-value" style="color:#D40511">{metricas['sem_gravacao']}</div></div>
+                </div>
+                ''',
+                unsafe_allow_html=True,
             )
-            fig_status.update_traces(textposition="inside", textinfo="percent+label", sort=False)
-            fig_status.update_layout(legend_title_text="Status")
-            st.plotly_chart(configurar_figura(fig_status, 380), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        col3, col4 = st.columns([1.15, 1.05])
+        col3, col4 = st.columns([1.06, 1.02])
         with col3:
-            st.markdown('<div class="panel"><div class="panel-title">Quantidade de Câmeras por Operação</div><div class="panel-subtitle">Base única por Nº da câmera para visão real do parque.</div>', unsafe_allow_html=True)
-            fig_qtd = px.bar(
-                op_qtd,
-                x="total",
-                y="operacao",
-                orientation="h",
-                text="total",
-                color="total",
-                color_continuous_scale=[[0, "#FFF2A8"], [0.35, "#FFCC00"], [1, "#D40511"]],
-                template=template,
-                labels={"total": "Qtd. câmeras", "operacao": "Operação"},
-            )
-            fig_qtd.update_traces(textposition="outside", marker_line_width=0, width=0.58)
-            fig_qtd.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Quantidade de câmeras", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_qtd, 360), use_container_width=True)
+            st.markdown('<div class="panel"><div class="panel-title">Quantidade de Câmeras por Operação</div><div class="panel-subtitle">Distribuição real do parque por operação.</div>', unsafe_allow_html=True)
+            op_qtd = op.sort_values("total", ascending=True)
+            fig_qtd = grafico_barra_executivo(op_qtd, "total", "operacao", modo="qtd", altura=365)
+            fig_qtd.update_xaxes(title="Câmeras únicas")
+            st.plotly_chart(fig_qtd, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col4:
-            st.markdown('<div class="panel"><div class="panel-title">Carga Operacional por NVR</div><div class="panel-subtitle">Quantidade de câmeras vinculadas por gravador.</div>', unsafe_allow_html=True)
-            nvr_df = df_norm.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total", ascending=True)
-            fig_nvr = px.bar(
-                nvr_df,
-                x="total",
-                y="nvr",
-                orientation="h",
-                text="total",
-                color="total",
-                color_continuous_scale=[[0, "#FFCC00"], [0.65, "#F59E0B"], [1, "#D40511"]],
-                template=template,
-                labels={"total": "Câmeras", "nvr": "NVR"},
-            )
-            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.58)
-            fig_nvr.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Câmeras", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_nvr, 360), use_container_width=True)
+            st.markdown('<div class="panel"><div class="panel-title">Carga Operacional por NVR</div><div class="panel-subtitle">Ranking dos gravadores com maior quantidade de câmeras.</div>', unsafe_allow_html=True)
+            nvr_df = df_norm.groupby("nvr", dropna=False).size().reset_index(name="total")
+            nvr_df = nvr_df[~nvr_df["nvr"].isin(["", "Não informado", "Nao informado"])]
+            nvr_df = nvr_df.sort_values("total", ascending=True).tail(12)
+            fig_nvr = grafico_barra_executivo(nvr_df, "total", "nvr", modo="nvr", altura=365)
+            fig_nvr.update_xaxes(title="Câmeras vinculadas")
+            st.plotly_chart(fig_nvr, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        col5, col6 = st.columns([1.15, 1])
+        col5, col6 = st.columns([1.1, 1])
         with col5:
-            st.markdown('<div class="panel"><div class="panel-title">Mapa de Risco Operacional</div><div class="panel-subtitle">Falhas, pendências e câmeras inativas por operação.</div>', unsafe_allow_html=True)
-            risco = op.sort_values("risco", ascending=False)[["operacao", "total", "inativas", "falhas", "sem_gravacao", "pendencias", "risco"]]
+            st.markdown('<div class="panel"><div class="panel-title">Mapa de Criticidade por Operação</div><div class="panel-subtitle">Risco operacional consolidado: falhas, sem gravação, manutenção, ações reais e inativas.</div>', unsafe_allow_html=True)
+            risco = op.sort_values("risco", ascending=False)[["operacao", "total", "ativas", "inativas", "falhas", "sem_gravacao", "pendencias", "disponibilidade", "risco", "risco_nivel"]]
+            risco = risco.rename(columns={
+                "operacao": "Operação", "total": "Total", "ativas": "Ativas", "inativas": "Inativas",
+                "falhas": "Falhas", "sem_gravacao": "Sem gravação", "pendencias": "Pendências reais",
+                "disponibilidade": "Disponibilidade %", "risco": "Score", "risco_nivel": "Risco"
+            })
             st.dataframe(risco, use_container_width=True, hide_index=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col6:
-            st.markdown('<div class="panel"><div class="panel-title">Resumo por Operação</div><div class="panel-subtitle">Total, ativas e inativas para conferência rápida.</div>', unsafe_allow_html=True)
-            resumo_ops = op.sort_values("total", ascending=False)[["operacao", "total", "ativas", "inativas", "disponibilidade"]]
-            st.dataframe(resumo_ops, use_container_width=True, hide_index=True)
+            st.markdown('<div class="panel"><div class="panel-title">Distribuição por Status</div><div class="panel-subtitle">Contagem direta, mais legível que gráfico donut.</div>', unsafe_allow_html=True)
+            status_df = df_norm.groupby("status", dropna=False).size().reset_index(name="total").sort_values("total", ascending=False)
+            rows = ""
+            for _, row in status_df.iterrows():
+                st_name = safe_text(row["status"], "Não informado")
+                val = int(row["total"])
+                rows += f'<div class="status-summary-row"><div class="status-summary-name">{html.escape(st_name)}</div><div class="status-summary-count">{val}</div></div>'
+            st.markdown(f'<div class="status-summary-grid">{rows}</div>', unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        pend = df_norm[(df_norm["has_pendencia"] == True) | (df_norm["is_falha"] == True) | (df_norm["is_sem_gravacao"] == True) | (df_norm["is_inativa"] == True)].copy()
-        pend = pend[["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(15)
-        st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas</div><div class="panel-subtitle">Lista priorizada para tratativa operacional e manutenção.</div>', unsafe_allow_html=True)
+        pend = df_norm[df_norm["is_critica"] == True].copy()
+        pend = pend[["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(20)
+        st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas Reais</div><div class="panel-subtitle">Exibe somente falha, sem gravação, manutenção, qualidade ruim/sem imagem ou ação necessária relevante. Não considera “Não informado” como pendência.</div>', unsafe_allow_html=True)
         if pend.empty:
             st.success("Nenhuma pendência crítica identificada.")
         else:
@@ -1467,5 +1608,3 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
-
