@@ -432,6 +432,16 @@ def safe_date_for_input(value):
         return br_now().date()
 
 
+def acao_pendente_valida(value):
+    txt = safe_text(value, "").strip().upper()
+    txt = txt.replace("Ã", "A").replace("Õ", "O")
+    sem_pendencia = {
+        "", "NAO", "NÃO", "N/A", "NA", "NONE", "NULL", "NAN", "OK", "SEM ACAO",
+        "SEM AÇÃO", "NENHUMA", "NAO SE APLICA", "NÃO SE APLICA", "-", "."
+    }
+    return txt not in sem_pendencia
+
+
 def normalizar_base(df):
     if df.empty:
         return df
@@ -467,8 +477,32 @@ def normalizar_base(df):
     out["is_falha"] = out["status_upper"].str.contains("FALHA", na=False) | out["qualidade_upper"].str.contains(
         "RUIM|SEM IMAGEM", na=False
     )
-    out["has_pendencia"] = out["acao_necessaria"].fillna("").astype(str).str.strip().str.len() > 0
+    out["has_pendencia"] = out["acao_necessaria"].apply(acao_pendente_valida)
     return out
+
+
+def cameras_unicas_por_numero(df):
+    """Base operacional única: prioriza Nº da câmera; fallback por IP; por último ID.
+    Isso evita que imports/edições duplicadas inflem os indicadores do dashboard.
+    """
+    if df.empty:
+        return df
+    base = normalizar_base(df).copy()
+    base["numero_num"] = pd.to_numeric(base.get("numero"), errors="coerce")
+
+    def make_key(row):
+        numero = row.get("numero_num")
+        if pd.notna(numero) and int(numero) > 0:
+            return f"NUM-{int(numero)}"
+        ip = safe_text(row.get("ip_camera"), "").strip()
+        if ip and ip != "Não informado":
+            return f"IP-{ip}"
+        return f"ID-{row.get('id')}"
+
+    base["camera_key"] = base.apply(make_key, axis=1)
+    # carregar_cameras já vem com ID desc; keep=first mantém o registro mais recente do mesmo Nº/IP.
+    base = base.drop_duplicates(subset=["camera_key"], keep="first").copy()
+    return base
 
 
 def calcular_metricas(df):
@@ -483,7 +517,7 @@ def calcular_metricas(df):
             "disponibilidade": 0,
             "nvrs": 0,
         }
-    base = normalizar_base(df)
+    base = cameras_unicas_por_numero(df)
     total = len(base)
     ativas = int(base["is_ativa"].sum())
     inativas = int(base["is_inativa"].sum())
@@ -533,15 +567,16 @@ def bytes_to_image_bytes(img_bytes):
 
 def configurar_figura(fig, height=360):
     fig.update_layout(
+        title=None,
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#FFFFFF",
-        font=dict(color="#1F2937", family="Inter"),
-        margin=dict(l=12, r=22, t=54, b=24),
-        title_font=dict(size=17, color="#1F2937", family="Inter"),
+        font=dict(color="#1F2937", family="Inter", size=13),
+        margin=dict(l=12, r=26, t=18, b=32),
+        bargap=0.34,
     )
-    fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
-    fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
+    fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12))
+    fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7", title_font=dict(size=12), tickfont=dict(size=12))
     return fig
 
 
@@ -881,7 +916,8 @@ hr { border-color: var(--border); }
 # DADOS E MÉTRICAS
 # =====================================================
 df = carregar_cameras()
-df_norm = normalizar_base(df)
+df_norm_all = normalizar_base(df)
+df_norm = cameras_unicas_por_numero(df)
 metricas = calcular_metricas(df)
 
 # =====================================================
@@ -964,7 +1000,7 @@ st.markdown(
 if menu == "📊 Dashboard Executivo":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas["disponibilidade"] >= 95 else "danger"), unsafe_allow_html=True)
-    c2.markdown(kpi_card("Total", metricas["total"], "câmeras cadastradas"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Total", metricas["total"], "câmeras únicas por Nº"), unsafe_allow_html=True)
     c3.markdown(kpi_card("Ativas", metricas["ativas"], "em operação", "success"), unsafe_allow_html=True)
     c4.markdown(kpi_card("Inativas", metricas["inativas"], "fora de operação", "warning" if metricas["inativas"] > 0 else "success"), unsafe_allow_html=True)
     c5.markdown(kpi_card("Sem gravação", metricas["sem_gravacao"], "falha crítica", "danger" if metricas["sem_gravacao"] > 0 else "success"), unsafe_allow_html=True)
@@ -986,13 +1022,14 @@ if menu == "📊 Dashboard Executivo":
         ).reset_index()
         op["disponibilidade"] = (op["ativas"] / op["total"] * 100).round(1)
         op["risco"] = op["falhas"] + op["sem_gravacao"] + op["pendencias"] + op["inativas"]
-        op = op.sort_values("disponibilidade", ascending=True)
+        op_disp = op.sort_values("disponibilidade", ascending=True)
+        op_qtd = op.sort_values("total", ascending=True)
 
-        col1, col2 = st.columns([1.25, 1])
+        col1, col2 = st.columns([1.2, 1])
         with col1:
-            st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking operacional para priorização de manutenção.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking operacional calculado sobre câmeras únicas por Nº.</div>', unsafe_allow_html=True)
             fig_op = px.bar(
-                op,
+                op_disp,
                 x="disponibilidade",
                 y="operacao",
                 orientation="h",
@@ -1003,13 +1040,13 @@ if menu == "📊 Dashboard Executivo":
                 template=template,
                 labels={"disponibilidade": "Disponibilidade (%)", "operacao": "Operação"},
             )
-            fig_op.update_traces(texttemplate="%{text:.1f}%", textposition="outside", marker_line_width=0, width=0.55)
+            fig_op.update_traces(texttemplate="%{text:.1f}%", textposition="outside", marker_line_width=0, width=0.58)
             fig_op.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Disponibilidade (%)", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_op, 390), use_container_width=True)
+            st.plotly_chart(configurar_figura(fig_op, 380), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
         with col2:
-            st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Visão consolidada de status das câmeras.</div>', unsafe_allow_html=True)
+            st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Distribuição consolidada por status operacional.</div>', unsafe_allow_html=True)
             status_df = df_norm.groupby("status", dropna=False).size().reset_index(name="total")
             fig_status = px.pie(
                 status_df,
@@ -1017,15 +1054,34 @@ if menu == "📊 Dashboard Executivo":
                 values="total",
                 hole=0.62,
                 template=template,
-                color_discrete_sequence=["#0E9F6E", "#FFCC00", "#D40511", "#6B7280", "#F59E0B"],
+                color="status",
+                color_discrete_map={"ATIVA":"#0E9F6E", "INATIVA":"#FFCC00", "FALHA":"#D40511", "SEM GRAVAÇÃO":"#D40511", "MANUTENÇÃO":"#F59E0B"},
             )
-            fig_status.update_traces(textposition="inside", textinfo="percent+label")
+            fig_status.update_traces(textposition="inside", textinfo="percent+label", sort=False)
             fig_status.update_layout(legend_title_text="Status")
-            st.plotly_chart(configurar_figura(fig_status, 390), use_container_width=True)
+            st.plotly_chart(configurar_figura(fig_status, 380), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        col3, col4 = st.columns([1.1, 1])
+        col3, col4 = st.columns([1.15, 1.05])
         with col3:
+            st.markdown('<div class="panel"><div class="panel-title">Quantidade de Câmeras por Operação</div><div class="panel-subtitle">Base única por Nº da câmera para visão real do parque.</div>', unsafe_allow_html=True)
+            fig_qtd = px.bar(
+                op_qtd,
+                x="total",
+                y="operacao",
+                orientation="h",
+                text="total",
+                color="total",
+                color_continuous_scale=[[0, "#FFF2A8"], [0.35, "#FFCC00"], [1, "#D40511"]],
+                template=template,
+                labels={"total": "Qtd. câmeras", "operacao": "Operação"},
+            )
+            fig_qtd.update_traces(textposition="outside", marker_line_width=0, width=0.58)
+            fig_qtd.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Quantidade de câmeras", yaxis_title="")
+            st.plotly_chart(configurar_figura(fig_qtd, 360), use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+        with col4:
             st.markdown('<div class="panel"><div class="panel-title">Carga Operacional por NVR</div><div class="panel-subtitle">Quantidade de câmeras vinculadas por gravador.</div>', unsafe_allow_html=True)
             nvr_df = df_norm.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total", ascending=True)
             fig_nvr = px.bar(
@@ -1039,19 +1095,26 @@ if menu == "📊 Dashboard Executivo":
                 template=template,
                 labels={"total": "Câmeras", "nvr": "NVR"},
             )
-            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.55)
+            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.58)
             fig_nvr.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Câmeras", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_nvr, 370), use_container_width=True)
+            st.plotly_chart(configurar_figura(fig_nvr, 360), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with col4:
+        col5, col6 = st.columns([1.15, 1])
+        with col5:
             st.markdown('<div class="panel"><div class="panel-title">Mapa de Risco Operacional</div><div class="panel-subtitle">Falhas, pendências e câmeras inativas por operação.</div>', unsafe_allow_html=True)
             risco = op.sort_values("risco", ascending=False)[["operacao", "total", "inativas", "falhas", "sem_gravacao", "pendencias", "risco"]]
             st.dataframe(risco, use_container_width=True, hide_index=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
+        with col6:
+            st.markdown('<div class="panel"><div class="panel-title">Resumo por Operação</div><div class="panel-subtitle">Total, ativas e inativas para conferência rápida.</div>', unsafe_allow_html=True)
+            resumo_ops = op.sort_values("total", ascending=False)[["operacao", "total", "ativas", "inativas", "disponibilidade"]]
+            st.dataframe(resumo_ops, use_container_width=True, hide_index=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
         pend = df_norm[(df_norm["has_pendencia"] == True) | (df_norm["is_falha"] == True) | (df_norm["is_sem_gravacao"] == True) | (df_norm["is_inativa"] == True)].copy()
-        pend = pend[["id", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(15)
+        pend = pend[["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(15)
         st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas</div><div class="panel-subtitle">Lista priorizada para tratativa operacional e manutenção.</div>', unsafe_allow_html=True)
         if pend.empty:
             st.success("Nenhuma pendência crítica identificada.")
@@ -1404,3 +1467,4 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
