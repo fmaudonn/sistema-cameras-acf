@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v20.0 • retenção por NVR"
+APP_VERSION = "v21.0 • menu lateral fixo"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -1005,7 +1005,27 @@ html, body, [class*="css"] {
     color: var(--text);
 }
 
-#MainMenu, footer, header { visibility: hidden; }
+#MainMenu, footer { visibility: hidden; }
+
+/* Mantém o controle de abrir a sidebar visível, mesmo se o usuário recolher o menu */
+header, [data-testid="stHeader"] {
+    visibility: visible !important;
+    background: transparent !important;
+}
+
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapsedControl"] {
+    visibility: visible !important;
+    display: flex !important;
+    opacity: 1 !important;
+    z-index: 999999 !important;
+}
+
+/* Evita recolher a barra lateral por acidente */
+[data-testid="stSidebarCollapseButton"] {
+    display: none !important;
+    visibility: hidden !important;
+}
 
 .block-container {
     padding-top: 1.15rem;
@@ -2249,3 +2269,4 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
