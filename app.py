@@ -567,7 +567,7 @@ def bytes_to_image_bytes(img_bytes):
 
 def configurar_figura(fig, height=360):
     fig.update_layout(
-        title=None,
+        title=dict(text=""),
         height=height,
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="#FFFFFF",
@@ -1467,4 +1467,5 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
 
