@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v18.0 • deduplicação e auditoria de duplicidades"
+APP_VERSION = "v19.0 • retenção por NVR"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -893,6 +893,62 @@ def grafico_barra_executivo(df_plot, x, y, texto=None, modo="dhl", altura=360, s
     return fig
 
 
+def cor_retencao(dias):
+    if dias >= 30:
+        return "#0E9F6E"
+    if dias >= 15:
+        return "#F59E0B"
+    return "#D40511"
+
+
+def grafico_retencao_por_nvr(nvr_retencao, altura=380):
+    """Gráfico executivo de retenção média de dias gravados por NVR."""
+    if nvr_retencao.empty:
+        return go.Figure()
+    plot_df = nvr_retencao.copy()
+    plot_df["media_dias"] = pd.to_numeric(plot_df["media_dias"], errors="coerce").fillna(0)
+    cores = [cor_retencao(v) for v in plot_df["media_dias"]]
+    texto = [f"{v:.0f}d" for v in plot_df["media_dias"]]
+    hover = [
+        f"<b>{row['nvr']}</b><br>Retenção média: {row['media_dias']:.1f} dias<br>Menor retenção: {row['min_dias']:.0f} dias<br>Maior retenção: {row['max_dias']:.0f} dias<br>Câmeras: {int(row['cameras'])}"
+        for _, row in plot_df.iterrows()
+    ]
+    fig = go.Figure()
+    fig.add_trace(go.Bar(
+        x=plot_df["media_dias"],
+        y=plot_df["nvr"].astype(str),
+        orientation="h",
+        text=texto,
+        textposition="outside",
+        marker=dict(color=cores, line=dict(width=0), cornerradius=8),
+        customdata=hover,
+        hovertemplate="%{customdata}<extra></extra>",
+    ))
+    fig.add_vline(
+        x=30,
+        line_width=2,
+        line_dash="dash",
+        line_color="#9CA3AF",
+        annotation_text="Meta 30 dias",
+        annotation_position="top right",
+        annotation_font_color="#6B7280",
+        annotation_font_size=11,
+    )
+    fig.update_layout(
+        height=altura,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#1F2937", family="Inter", size=13),
+        margin=dict(l=8, r=46, t=8, b=28),
+        bargap=0.34,
+        showlegend=False,
+        hoverlabel=dict(bgcolor="#111827", font_color="#FFFFFF"),
+    )
+    fig.update_xaxes(showgrid=True, gridcolor="#EEF2F7", zeroline=False, title="Dias gravados")
+    fig.update_yaxes(showgrid=False, title="", automargin=True)
+    return fig
+
+
 def kpi_card(title, value, caption, kind="default"):
     cls = "kpi-card"
     val_cls = "kpi-value"
@@ -1574,6 +1630,33 @@ if menu == "📊 Dashboard Executivo":
             st.markdown(f'<div class="status-summary-grid">{rows}</div>', unsafe_allow_html=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
+        st.markdown('<div class="panel"><div class="panel-title">Dias Gravados por Gravador / NVR</div><div class="panel-subtitle">Retenção média de gravação por NVR. A linha tracejada indica a meta mínima sugerida de 30 dias.</div>', unsafe_allow_html=True)
+        nvr_retencao = df_norm.copy()
+        nvr_retencao = nvr_retencao[~nvr_retencao["nvr"].isin(["", "Não informado", "Nao informado"])]
+        nvr_retencao = nvr_retencao[pd.to_numeric(nvr_retencao["dias_gravacao"], errors="coerce").fillna(0) > 0]
+        if nvr_retencao.empty:
+            st.info("Não há dados de dias de gravação suficientes para consolidar por NVR.")
+        else:
+            nvr_retencao = nvr_retencao.groupby("nvr", dropna=False).agg(
+                cameras=("id", "count"),
+                media_dias=("dias_gravacao", "mean"),
+                min_dias=("dias_gravacao", "min"),
+                max_dias=("dias_gravacao", "max"),
+            ).reset_index()
+            nvr_retencao["media_dias"] = nvr_retencao["media_dias"].round(1)
+            nvr_retencao = nvr_retencao.sort_values("media_dias", ascending=True).tail(15)
+            st.plotly_chart(grafico_retencao_por_nvr(nvr_retencao, altura=390), use_container_width=True)
+            with st.expander("Ver tabela de retenção por NVR"):
+                tabela_retencao = nvr_retencao.sort_values("media_dias", ascending=True).rename(columns={
+                    "nvr": "NVR",
+                    "cameras": "Câmeras",
+                    "media_dias": "Média dias",
+                    "min_dias": "Menor retenção",
+                    "max_dias": "Maior retenção",
+                })
+                st.dataframe(tabela_retencao, use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
         pend = df_norm[df_norm["is_critica"] == True].copy()
         pend = pend[["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(20)
         st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas Reais</div><div class="panel-subtitle">Exibe somente falha, sem gravação, manutenção, qualidade ruim/sem imagem ou ação necessária relevante. Não considera “Não informado” como pendência.</div>', unsafe_allow_html=True)
@@ -2151,4 +2234,3 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
