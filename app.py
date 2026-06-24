@@ -1,10 +1,13 @@
-import streamlit as st
+import base64
+import html
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+import streamlit as st
 from sqlalchemy import create_engine, text
-from datetime import datetime
-import base64
 
 # =====================================================
 # CONFIGURAÇÃO DA PÁGINA
@@ -20,7 +23,7 @@ st.set_page_config(
 # CONEXÃO COM NEON
 # =====================================================
 DATABASE_URL = st.secrets["DATABASE_URL"]
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
 
 
 # =====================================================
@@ -38,7 +41,7 @@ def consultar_df(sql, params=None):
 
 def carregar_cameras():
     return consultar_df("""
-        SELECT 
+        SELECT
             id, numero, operacao, nome_camera, canal, ip_camera, modelo, marca,
             dias_gravacao, nvr, ip_nvr, rack, status, qualidade_gravacao,
             observacao, acao_necessaria, serie_number, ativo, criado_em, atualizado_em
@@ -47,10 +50,10 @@ def carregar_cameras():
     """)
 
 
-def carregar_cameras_com_foto(limit=12):
+def carregar_cameras_com_foto(limit=24):
     try:
         return consultar_df("""
-            SELECT 
+            SELECT
                 id, numero, operacao, nome_camera, canal, ip_camera, modelo, marca,
                 dias_gravacao, nvr, ip_nvr, rack, status, qualidade_gravacao,
                 observacao, acao_necessaria, serie_number, ativo, foto_camera, foto_nome,
@@ -67,19 +70,6 @@ def imagem_para_bytes(uploaded_file):
     if uploaded_file is None:
         return None, None
     return uploaded_file.read(), uploaded_file.name
-
-
-def bytes_para_base64(img_bytes):
-    if img_bytes is None:
-        return None
-    if isinstance(img_bytes, memoryview):
-        img_bytes = img_bytes.tobytes()
-    if isinstance(img_bytes, str):
-        return None
-    try:
-        return base64.b64encode(img_bytes).decode("utf-8")
-    except Exception:
-        return None
 
 
 def cadastrar_camera(dados, foto, foto_nome):
@@ -147,7 +137,156 @@ def excluir_camera(camera_id):
 
 
 # =====================================================
-# CSS PROFISSIONAL DHL
+# FUNÇÕES AUXILIARES
+# =====================================================
+def br_now():
+    return datetime.now(ZoneInfo("America/Sao_Paulo"))
+
+
+def safe_text(value, default="Não informado"):
+    if value is None or pd.isna(value):
+        return default
+    value = str(value).strip()
+    if value == "" or value.lower() in ["nan", "none", "undefined"]:
+        return default
+    return value
+
+
+def esc(value, default="Não informado"):
+    return html.escape(safe_text(value, default))
+
+
+def normalizar_base(df):
+    if df.empty:
+        return df
+
+    out = df.copy()
+    texto_cols = ["operacao", "nome_camera", "status", "qualidade_gravacao", "nvr", "rack", "ip_camera", "canal", "modelo", "marca"]
+    for col in texto_cols:
+        if col in out.columns:
+            out[col] = out[col].apply(lambda x: safe_text(x))
+
+    if "dias_gravacao" in out.columns:
+        out["dias_gravacao"] = pd.to_numeric(out["dias_gravacao"], errors="coerce").fillna(0)
+
+    out["status_upper"] = out["status"].fillna("").str.upper()
+    out["qualidade_upper"] = out["qualidade_gravacao"].fillna("").str.upper()
+    out["is_ativa"] = (out["ativo"] == True) & (out["status_upper"] == "ATIVA")
+    out["is_inativa"] = (out["ativo"] == False) | out["status_upper"].str.contains("INATIVA", na=False)
+    out["is_sem_gravacao"] = out["status_upper"].str.contains("SEM GRAVAÇÃO", na=False) | out["qualidade_upper"].str.contains("SEM GRAVAÇÃO", na=False)
+    out["is_falha"] = out["status_upper"].str.contains("FALHA", na=False) | out["qualidade_upper"].str.contains("RUIM|SEM IMAGEM", na=False)
+    out["has_pendencia"] = out["acao_necessaria"].fillna("").astype(str).str.strip().str.len() > 0
+    return out
+
+
+def calcular_metricas(df):
+    if df.empty:
+        return {
+            "total": 0,
+            "ativas": 0,
+            "inativas": 0,
+            "pendencias": 0,
+            "sem_gravacao": 0,
+            "falhas": 0,
+            "disponibilidade": 0,
+            "nvrs": 0
+        }
+
+    base = normalizar_base(df)
+    total = len(base)
+    ativas = int(base["is_ativa"].sum())
+    inativas = int(base["is_inativa"].sum())
+    pendencias = int(base["has_pendencia"].sum())
+    sem_gravacao = int(base["is_sem_gravacao"].sum())
+    falhas = int((base["is_falha"] | base["is_sem_gravacao"]).sum())
+    disponibilidade = round((ativas / total) * 100, 1) if total else 0
+    nvrs = base["nvr"].replace("Não informado", pd.NA).dropna().nunique()
+
+    return {
+        "total": total,
+        "ativas": ativas,
+        "inativas": inativas,
+        "pendencias": pendencias,
+        "sem_gravacao": sem_gravacao,
+        "falhas": falhas,
+        "disponibilidade": disponibilidade,
+        "nvrs": int(nvrs)
+    }
+
+
+def status_class(status):
+    s = safe_text(status, "").upper()
+    if "ATIVA" == s:
+        return "status-green"
+    if "MANUT" in s or "REGULAR" in s:
+        return "status-yellow"
+    if "FALHA" in s or "SEM" in s or "INATIVA" in s:
+        return "status-red"
+    return "status-gray"
+
+
+def bytes_para_base64(img_bytes):
+    if img_bytes is None or pd.isna(img_bytes):
+        return None
+    if isinstance(img_bytes, memoryview):
+        img_bytes = img_bytes.tobytes()
+    if isinstance(img_bytes, bytearray):
+        img_bytes = bytes(img_bytes)
+    if not isinstance(img_bytes, (bytes, bytearray)):
+        return None
+    try:
+        return base64.b64encode(img_bytes).decode("utf-8")
+    except Exception:
+        return None
+
+
+def mime_por_nome(nome):
+    nome = str(nome or "").lower()
+    if nome.endswith(".jpg") or nome.endswith(".jpeg"):
+        return "image/jpeg"
+    if nome.endswith(".webp"):
+        return "image/webp"
+    return "image/png"
+
+
+def configurar_figura(fig, height=360):
+    fig.update_layout(
+        height=height,
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(color="#1F2937", family="Inter"),
+        margin=dict(l=10, r=10, t=54, b=24),
+        title_font=dict(size=17, color="#1F2937", family="Inter")
+    )
+    fig.update_xaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
+    fig.update_yaxes(gridcolor="#EEF2F7", zerolinecolor="#EEF2F7")
+    return fig
+
+
+def kpi_card(title, value, caption, kind="default"):
+    cls = "kpi-card"
+    val_cls = "kpi-value"
+    if kind == "danger":
+        cls += " kpi-danger"
+        val_cls += " red"
+    elif kind == "success":
+        cls += " kpi-success"
+        val_cls += " green"
+    elif kind == "warning":
+        cls += " kpi-warning"
+        val_cls += " yellow"
+
+    return f"""
+    <div class="{cls}">
+        <div class="kpi-title">{html.escape(str(title))}</div>
+        <div class="{val_cls}">{html.escape(str(value))}</div>
+        <div class="kpi-caption">{html.escape(str(caption))}</div>
+    </div>
+    """
+
+
+# =====================================================
+# CSS PROFISSIONAL DHL V7
 # =====================================================
 st.markdown("""
 <style>
@@ -155,12 +294,12 @@ st.markdown("""
 
 :root {
     --dhl-yellow: #FFCC00;
-    --dhl-yellow-soft: #FFF4BF;
+    --dhl-yellow-soft: #FFF7CC;
     --dhl-red: #D40511;
-    --dhl-red-dark: #9F000A;
+    --dhl-red-dark: #99000B;
     --bg: #F4F6F8;
     --surface: #FFFFFF;
-    --surface-soft: #FAFAFA;
+    --surface-2: #F9FAFB;
     --border: #E5E7EB;
     --text: #1F2937;
     --muted: #6B7280;
@@ -176,17 +315,15 @@ html, body, [class*="css"] {
 
 .stApp {
     background:
-        radial-gradient(circle at top right, rgba(255,204,0,.18), transparent 28%),
-        linear-gradient(180deg, #F7F8FA 0%, #F1F3F6 100%);
+        radial-gradient(circle at top right, rgba(255, 204, 0, .18), transparent 30%),
+        linear-gradient(180deg, #F7F8FA 0%, #EEF1F5 100%);
     color: var(--text);
 }
 
-#MainMenu, footer, header {
-    visibility: hidden;
-}
+#MainMenu, footer, header { visibility: hidden; }
 
 .block-container {
-    padding-top: 1.1rem;
+    padding-top: 1.15rem;
     padding-left: 2rem;
     padding-right: 2rem;
     max-width: 100% !important;
@@ -195,45 +332,60 @@ html, body, [class*="css"] {
 section[data-testid="stSidebar"] {
     background: #FFFFFF;
     border-right: 1px solid var(--border);
-    box-shadow: 6px 0 26px rgba(15, 23, 42, 0.06);
+    box-shadow: 8px 0 30px rgba(15, 23, 42, 0.07);
 }
 
-section[data-testid="stSidebar"] * {
-    color: var(--text) !important;
-}
+section[data-testid="stSidebar"] * { color: var(--text) !important; }
 
 .sidebar-brand {
-    background: linear-gradient(135deg, var(--dhl-yellow) 0%, #FFE066 100%);
-    border-radius: 22px;
-    padding: 22px 18px;
-    margin: 0 0 18px 0;
+    background: linear-gradient(135deg, var(--dhl-yellow) 0%, #FFE57A 100%);
+    border-radius: 24px;
+    padding: 24px 20px;
+    margin: 4px 0 18px 0;
     border: 1px solid #E8B900;
-    box-shadow: 0 12px 30px rgba(255, 204, 0, 0.25);
+    box-shadow: 0 14px 34px rgba(255, 204, 0, 0.30);
+    position: relative;
+    overflow: hidden;
+}
+
+.sidebar-brand:after {
+    content: "";
+    position: absolute;
+    width: 150px;
+    height: 150px;
+    right: -70px;
+    bottom: -70px;
+    background: rgba(212, 5, 17, .12);
+    border-radius: 50%;
 }
 
 .sidebar-brand .brand-title {
     font-weight: 900;
     color: var(--dhl-red) !important;
-    font-size: 24px;
+    font-size: 25px;
     line-height: 1.05;
     letter-spacing: -0.04em;
+    position: relative;
+    z-index: 2;
 }
 
 .sidebar-brand .brand-subtitle {
     color: #2B2B2B !important;
-    font-size: 12px;
-    font-weight: 700;
-    margin-top: 6px;
+    font-size: 11px;
+    font-weight: 900;
+    margin-top: 10px;
     text-transform: uppercase;
-    letter-spacing: .05em;
+    letter-spacing: .10em;
+    position: relative;
+    z-index: 2;
 }
 
 .sidebar-section {
     font-size: 11px;
     color: var(--muted) !important;
     text-transform: uppercase;
-    letter-spacing: .12em;
-    font-weight: 800;
+    letter-spacing: .14em;
+    font-weight: 900;
     margin-top: 18px;
     margin-bottom: 8px;
 }
@@ -241,16 +393,18 @@ section[data-testid="stSidebar"] * {
 .sidebar-mini-card {
     background: #F9FAFB;
     border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 14px;
+    border-radius: 18px;
+    padding: 14px 15px;
     margin-bottom: 10px;
+    box-shadow: 0 8px 22px rgba(15,23,42,.035);
 }
 
 .sidebar-mini-card .mini-title {
     color: var(--muted) !important;
-    font-size: 11px;
-    font-weight: 700;
+    font-size: 10px;
+    font-weight: 900;
     text-transform: uppercase;
+    letter-spacing: .08em;
 }
 
 .sidebar-mini-card .mini-value {
@@ -260,37 +414,32 @@ section[data-testid="stSidebar"] * {
     margin-top: 3px;
 }
 
-/* Radio menu */
+/* Menu lateral */
 div[role="radiogroup"] label {
     background: #FFFFFF !important;
     border: 1px solid transparent !important;
     border-radius: 14px !important;
-    padding: 10px 12px !important;
-    margin-bottom: 6px !important;
-    transition: all .15s ease;
+    padding: 11px 12px !important;
+    margin-bottom: 7px !important;
+    transition: all .16s ease;
+    font-weight: 700 !important;
 }
 
 div[role="radiogroup"] label:hover {
-    background: #FFF9DB !important;
+    background: #FFF7CC !important;
     border-color: #FFE066 !important;
+    transform: translateX(2px);
 }
 
-div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child {
-    display: none !important;
-}
-
-h1, h2, h3 {
-    color: var(--text) !important;
-    letter-spacing: -0.035em;
-}
+div[role="radiogroup"] label[data-baseweb="radio"] > div:first-child { display: none !important; }
 
 .app-header {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 26px;
-    padding: 24px 28px;
+    padding: 26px 30px;
     margin-bottom: 20px;
-    box-shadow: 0 14px 38px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.07);
     position: relative;
     overflow: hidden;
 }
@@ -299,30 +448,31 @@ h1, h2, h3 {
     content: "";
     position: absolute;
     inset: 0 0 auto 0;
-    height: 7px;
+    height: 8px;
     background: linear-gradient(90deg, var(--dhl-red) 0%, var(--dhl-red) 24%, var(--dhl-yellow) 24%, var(--dhl-yellow) 100%);
 }
 
 .app-header-grid {
     display: grid;
     grid-template-columns: 1fr auto;
-    gap: 20px;
+    gap: 24px;
     align-items: center;
-    margin-top: 6px;
+    margin-top: 8px;
 }
 
 .header-title {
-    font-size: 30px;
+    font-size: 32px;
     font-weight: 900;
     color: var(--text);
     line-height: 1.1;
+    letter-spacing: -0.045em;
 }
 
 .header-subtitle {
     color: var(--muted);
     font-size: 14px;
-    margin-top: 6px;
-    font-weight: 600;
+    margin-top: 8px;
+    font-weight: 700;
 }
 
 .header-right {
@@ -334,36 +484,32 @@ h1, h2, h3 {
 }
 
 .badge {
-    padding: 8px 12px;
+    padding: 9px 13px;
     border-radius: 999px;
     font-size: 12px;
-    font-weight: 800;
+    font-weight: 900;
     border: 1px solid var(--border);
     background: #F9FAFB;
     color: var(--text);
 }
 
-.badge-online {
-    background: #ECFDF5;
-    color: #047857;
-    border-color: #A7F3D0;
-}
-
-.badge-dhl {
-    background: var(--dhl-yellow-soft);
-    color: var(--dhl-red);
-    border-color: #FFE066;
-}
+.badge-online { background: #ECFDF5; color: #047857; border-color: #A7F3D0; }
+.badge-dhl { background: var(--dhl-yellow-soft); color: var(--dhl-red); border-color: #FFE066; }
 
 .kpi-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 22px;
     padding: 18px 18px 16px 18px;
-    min-height: 116px;
-    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+    height: 138px;
+    min-height: 138px;
+    max-height: 138px;
+    box-shadow: 0 11px 30px rgba(15, 23, 42, 0.055);
     position: relative;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
 }
 
 .kpi-card:before {
@@ -381,21 +527,22 @@ h1, h2, h3 {
 .kpi-card.kpi-warning:before { background: var(--warning); }
 
 .kpi-title {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--muted);
     text-transform: uppercase;
-    letter-spacing: .10em;
+    letter-spacing: .12em;
     font-weight: 900;
     margin-left: 4px;
+    min-height: 24px;
 }
 
 .kpi-value {
     font-size: 28px;
     color: var(--text);
     font-weight: 900;
-    margin-top: 8px;
     margin-left: 4px;
     line-height: 1;
+    white-space: nowrap;
 }
 
 .kpi-value.red { color: var(--dhl-red); }
@@ -404,10 +551,10 @@ h1, h2, h3 {
 
 .kpi-caption {
     margin-left: 4px;
-    margin-top: 10px;
-    font-size: 12px;
+    font-size: 11px;
     color: var(--muted);
-    font-weight: 600;
+    font-weight: 700;
+    min-height: 18px;
 }
 
 .panel {
@@ -415,110 +562,24 @@ h1, h2, h3 {
     border: 1px solid var(--border);
     border-radius: 24px;
     padding: 20px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 12px 34px rgba(15, 23, 42, 0.055);
     margin-bottom: 18px;
 }
 
 .panel-title {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 900;
     color: var(--text);
     margin-bottom: 12px;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
 }
 
 .panel-subtitle {
     color: var(--muted);
     font-size: 13px;
-    margin-top: -6px;
+    margin-top: -7px;
     margin-bottom: 12px;
-}
-
-.risk-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-}
-
-.risk-table th {
-    color: var(--muted);
-    text-align: left;
-    padding: 10px 8px;
-    text-transform: uppercase;
-    font-size: 11px;
-    letter-spacing: .08em;
-    border-bottom: 1px solid var(--border);
-}
-
-.risk-table td {
-    padding: 11px 8px;
-    border-bottom: 1px solid #F1F5F9;
-    font-weight: 600;
-}
-
-.status-pill {
-    display: inline-block;
-    padding: 5px 9px;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 900;
-}
-
-.status-green { background: #ECFDF5; color: #047857; }
-.status-yellow { background: #FFFBEB; color: #B45309; }
-.status-red { background: #FEF2F2; color: var(--dhl-red); }
-.status-gray { background: #F3F4F6; color: #4B5563; }
-
-.camera-card-grid {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(180px, 1fr));
-    gap: 14px;
-}
-
-.camera-card {
-    border: 1px solid var(--border);
-    background: #FFFFFF;
-    border-radius: 18px;
-    overflow: hidden;
-    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.045);
-}
-
-.camera-img {
-    height: 125px;
-    background: linear-gradient(135deg, #E5E7EB, #F9FAFB);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--muted);
-    font-weight: 800;
-    font-size: 12px;
-    text-transform: uppercase;
-}
-
-.camera-img img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.camera-body {
-    padding: 13px 14px;
-}
-
-.camera-title {
-    font-weight: 900;
-    color: var(--text);
-    font-size: 14px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.camera-meta {
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 4px;
-    font-weight: 600;
+    font-weight: 500;
 }
 
 .form-section {
@@ -526,8 +587,57 @@ h1, h2, h3 {
     border: 1px solid var(--border);
     border-radius: 24px;
     padding: 22px;
-    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.045);
+    box-shadow: 0 12px 34px rgba(15, 23, 42, 0.055);
 }
+
+.camera-card-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(190px, 1fr));
+    gap: 16px;
+}
+
+.camera-card {
+    border: 1px solid var(--border);
+    background: #FFFFFF;
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 9px 24px rgba(15, 23, 42, 0.055);
+}
+
+.camera-img {
+    height: 132px;
+    background: linear-gradient(135deg, #E5E7EB, #F9FAFB);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+    font-weight: 900;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.camera-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.camera-placeholder {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #F3F4F6, #FFFFFF);
+    color: #9CA3AF;
+    font-size: 28px;
+}
+
+.camera-body { padding: 14px; }
+.camera-title { font-weight: 900; color: var(--text); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.camera-meta { color: var(--muted); font-size: 12px; margin-top: 5px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.status-pill { display: inline-block; padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.status-green { background: #ECFDF5; color: #047857; }
+.status-yellow { background: #FFFBEB; color: #B45309; }
+.status-red { background: #FEF2F2; color: var(--dhl-red); }
+.status-gray { background: #F3F4F6; color: #4B5563; }
 
 .stButton button {
     border-radius: 12px !important;
@@ -537,11 +647,7 @@ h1, h2, h3 {
     font-weight: 900 !important;
     min-height: 42px;
 }
-
-.stButton button:hover {
-    background: #F4C400 !important;
-    color: #111827 !important;
-}
+.stButton button:hover { background: #F4C400 !important; color: #111827 !important; }
 
 .stDownloadButton button {
     border-radius: 12px !important;
@@ -551,27 +657,13 @@ h1, h2, h3 {
     font-weight: 900 !important;
 }
 
-[data-testid="stDataFrame"] {
-    border-radius: 18px;
-    overflow: hidden;
-    border: 1px solid var(--border);
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
-}
-
-input, textarea {
-    border-radius: 12px !important;
-}
-
-div[data-baseweb="select"] > div {
-    border-radius: 12px !important;
-}
-
-hr {
-    border-color: var(--border);
-}
+[data-testid="stDataFrame"] { border-radius: 18px; overflow: hidden; border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04); }
+input, textarea { border-radius: 12px !important; }
+div[data-baseweb="select"] > div { border-radius: 12px !important; }
+hr { border-color: var(--border); }
 
 @media (max-width: 1200px) {
-    .camera-card-grid { grid-template-columns: repeat(2, minmax(180px, 1fr)); }
+    .camera-card-grid { grid-template-columns: repeat(2, minmax(190px, 1fr)); }
     .app-header-grid { grid-template-columns: 1fr; }
 }
 </style>
@@ -582,44 +674,8 @@ hr {
 # DADOS E MÉTRICAS
 # =====================================================
 df = carregar_cameras()
-
-def calcular_metricas(df):
-    if df.empty:
-        return {
-            "total": 0, "ativas": 0, "inativas": 0, "pendencias": 0,
-            "sem_gravacao": 0, "falhas": 0, "retencao_media": 0,
-            "disponibilidade": 0, "nvrs": 0, "sem_foto": 0
-        }
-
-    status = df["status"].fillna("").str.upper()
-    qualidade = df["qualidade_gravacao"].fillna("").str.upper()
-
-    total = len(df)
-    ativas = len(df[(df["ativo"] == True) & (status == "ATIVA")])
-    inativas = len(df[df["ativo"] == False])
-    pendencias = len(df[df["acao_necessaria"].fillna("").str.len() > 0])
-    sem_gravacao = len(df[status.str.contains("SEM GRAVAÇÃO", na=False) | qualidade.str.contains("SEM GRAVAÇÃO", na=False)])
-    falhas = len(df[status.str.contains("FALHA", na=False) | qualidade.str.contains("RUIM|SEM IMAGEM", na=False)])
-    retencao_media = round(pd.to_numeric(df["dias_gravacao"], errors="coerce").fillna(0).mean(), 1)
-    disponibilidade = round((ativas / total) * 100, 1) if total else 0
-    nvrs = df["nvr"].replace("", pd.NA).dropna().nunique()
-
-    return {
-        "total": total,
-        "ativas": ativas,
-        "inativas": inativas,
-        "pendencias": pendencias,
-        "sem_gravacao": sem_gravacao,
-        "falhas": falhas,
-        "retencao_media": retencao_media,
-        "disponibilidade": disponibilidade,
-        "nvrs": nvrs,
-        "sem_foto": 0
-    }
-
-
+df_norm = normalizar_base(df)
 metricas = calcular_metricas(df)
-
 
 # =====================================================
 # SIDEBAR PREMIUM
@@ -662,11 +718,10 @@ st.sidebar.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
 # =====================================================
 # HEADER PROFISSIONAL
 # =====================================================
-last_update = datetime.now().strftime("%d/%m/%Y %H:%M")
+last_update = br_now().strftime("%d/%m/%Y %H:%M")
 st.markdown(f"""
 <div class="app-header">
     <div class="app-header-grid">
@@ -683,99 +738,38 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-
-# =====================================================
-# FUNÇÕES VISUAIS
-# =====================================================
-def kpi_card(title, value, caption, kind="default"):
-    cls = "kpi-card"
-    val_cls = "kpi-value"
-    if kind == "danger":
-        cls += " kpi-danger"
-        val_cls += " red"
-    elif kind == "success":
-        cls += " kpi-success"
-        val_cls += " green"
-    elif kind == "warning":
-        cls += " kpi-warning"
-        val_cls += " yellow"
-
-    return f"""
-    <div class="{cls}">
-        <div class="kpi-title">{title}</div>
-        <div class="{val_cls}">{value}</div>
-        <div class="kpi-caption">{caption}</div>
-    </div>
-    """
-
-
-def status_class(status):
-    s = str(status).upper()
-    if "ATIVA" in s:
-        return "status-green"
-    if "MANUT" in s or "REGULAR" in s:
-        return "status-yellow"
-    if "FALHA" in s or "SEM" in s or "INATIVA" in s:
-        return "status-red"
-    return "status-gray"
-
-
-def status_label(status):
-    if pd.isna(status) or str(status).strip() == "":
-        return "NÃO INFORMADO"
-    return str(status)
-
-
-def configurar_figura(fig, height=340):
-    fig.update_layout(
-        height=height,
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="#FFFFFF",
-        font=dict(color="#1F2937", family="Inter"),
-        margin=dict(l=10, r=10, t=50, b=20),
-        title_font=dict(size=16, color="#1F2937", family="Inter")
-    )
-    return fig
-
-
 # =====================================================
 # DASHBOARD EXECUTIVO
 # =====================================================
 if menu == "📊 Dashboard Executivo":
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas['disponibilidade'] >= 95 else "danger"), unsafe_allow_html=True)
-    c2.markdown(kpi_card("Total", metricas['total'], "câmeras cadastradas"), unsafe_allow_html=True)
-    c3.markdown(kpi_card("Ativas", metricas['ativas'], "em operação", "success"), unsafe_allow_html=True)
-    c4.markdown(kpi_card("Falhas", metricas['falhas'], "imagem/status crítico", "danger" if metricas['falhas'] > 0 else "success"), unsafe_allow_html=True)
-    c5.markdown(kpi_card("Sem gravação", metricas['sem_gravacao'], "falha crítica", "danger" if metricas['sem_gravacao'] > 0 else "success"), unsafe_allow_html=True)
-    c6.markdown(kpi_card("Retenção média", f"{metricas['retencao_media']}d", "dias gravados", "warning"), unsafe_allow_html=True)
+    c2.markdown(kpi_card("Total", metricas["total"], "câmeras cadastradas"), unsafe_allow_html=True)
+    c3.markdown(kpi_card("Ativas", metricas["ativas"], "em operação", "success"), unsafe_allow_html=True)
+    c4.markdown(kpi_card("Inativas", metricas["inativas"], "fora de operação", "warning" if metricas["inativas"] > 0 else "success"), unsafe_allow_html=True)
+    c5.markdown(kpi_card("Sem gravação", metricas["sem_gravacao"], "falha crítica", "danger" if metricas["sem_gravacao"] > 0 else "success"), unsafe_allow_html=True)
+    c6.markdown(kpi_card("Pendências", metricas["pendencias"], "ação necessária", "danger" if metricas["pendencias"] > 0 else "success"), unsafe_allow_html=True)
 
     st.write("")
 
-    if df.empty:
+    if df_norm.empty:
         st.info("Nenhuma câmera cadastrada ainda.")
     else:
         template = "plotly_white"
-        cores_dhl = ["#FFCC00", "#D40511", "#2B2B2B", "#8C8C8C", "#F7D154", "#0E9F6E"]
 
-        # Dados por operação
-        df_work = df.copy()
-        df_work["status_upper"] = df_work["status"].fillna("").str.upper()
-        df_work["qualidade_upper"] = df_work["qualidade_gravacao"].fillna("").str.upper()
-        df_work["is_ativa"] = (df_work["ativo"] == True) & (df_work["status_upper"] == "ATIVA")
-        df_work["is_falha"] = df_work["status_upper"].str.contains("FALHA|SEM GRAVAÇÃO", na=False) | df_work["qualidade_upper"].str.contains("RUIM|SEM IMAGEM|SEM GRAVAÇÃO", na=False)
-
-        op = df_work.groupby("operacao", dropna=False).agg(
+        op = df_norm.groupby("operacao", dropna=False).agg(
             total=("id", "count"),
             ativas=("is_ativa", "sum"),
+            inativas=("is_inativa", "sum"),
             falhas=("is_falha", "sum"),
-            retencao_media=("dias_gravacao", "mean")
+            sem_gravacao=("is_sem_gravacao", "sum"),
+            pendencias=("has_pendencia", "sum")
         ).reset_index()
         op["disponibilidade"] = (op["ativas"] / op["total"] * 100).round(1)
-        op["risco"] = op["falhas"]
+        op["risco"] = op["falhas"] + op["sem_gravacao"] + op["pendencias"] + op["inativas"]
         op = op.sort_values("disponibilidade", ascending=True)
 
-        col1, col2 = st.columns([1.1, 1])
+        col1, col2 = st.columns([1.2, 1])
 
         with col1:
             st.markdown('<div class="panel"><div class="panel-title">Disponibilidade por Operação</div><div class="panel-subtitle">Ranking operacional para priorização de manutenção.</div>', unsafe_allow_html=True)
@@ -786,70 +780,64 @@ if menu == "📊 Dashboard Executivo":
                 orientation="h",
                 text="disponibilidade",
                 color="disponibilidade",
-                color_continuous_scale=[[0, "#D40511"], [0.5, "#F59E0B"], [1, "#0E9F6E"]],
+                color_continuous_scale=[[0, "#D40511"], [0.55, "#F59E0B"], [1, "#0E9F6E"]],
                 range_x=[0, 100],
-                template=template
+                template=template,
+                labels={"disponibilidade": "Disponibilidade (%)", "operacao": "Operação"}
             )
-            fig_op.update_traces(texttemplate="%{text}%", textposition="outside")
+            fig_op.update_traces(texttemplate="%{text}%", textposition="outside", marker_line_width=0, width=0.58)
             fig_op.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Disponibilidade (%)", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_op, 385), use_container_width=True)
+            st.plotly_chart(configurar_figura(fig_op, 390), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
             st.markdown('<div class="panel"><div class="panel-title">Saúde do Parque CFTV</div><div class="panel-subtitle">Visão consolidada de status das câmeras.</div>', unsafe_allow_html=True)
-            status_df = df.groupby("status", dropna=False).size().reset_index(name="total")
+            status_df = df_norm.groupby("status", dropna=False).size().reset_index(name="total")
             fig_status = px.pie(
                 status_df,
                 names="status",
                 values="total",
                 hole=0.62,
-                color_discrete_sequence=cores_dhl,
-                template=template
+                template=template,
+                color_discrete_sequence=["#0E9F6E", "#FFCC00", "#D40511", "#6B7280", "#F59E0B"]
             )
-            fig_status.update_traces(textinfo="percent+label")
-            st.plotly_chart(configurar_figura(fig_status, 385), use_container_width=True)
+            fig_status.update_traces(textposition="inside", textinfo="percent+label")
+            fig_status.update_layout(legend_title_text="Status")
+            st.plotly_chart(configurar_figura(fig_status, 390), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-        col3, col4 = st.columns([1, 1])
+        col3, col4 = st.columns([1.1, 1])
 
         with col3:
             st.markdown('<div class="panel"><div class="panel-title">Carga Operacional por NVR</div><div class="panel-subtitle">Quantidade de câmeras vinculadas por gravador.</div>', unsafe_allow_html=True)
-            nvr_df = df.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total", ascending=True)
+            nvr_df = df_norm.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total", ascending=True)
             fig_nvr = px.bar(
                 nvr_df,
                 x="total",
                 y="nvr",
                 orientation="h",
                 text="total",
-                color_discrete_sequence=["#D40511"],
-                template=template
+                color="total",
+                color_continuous_scale=[[0, "#FFCC00"], [0.65, "#F59E0B"], [1, "#D40511"]],
+                template=template,
+                labels={"total": "Câmeras", "nvr": "NVR"}
             )
-            fig_nvr.update_traces(textposition="outside")
-            fig_nvr.update_layout(xaxis_title="Câmeras", yaxis_title="")
-            st.plotly_chart(configurar_figura(fig_nvr, 360), use_container_width=True)
+            fig_nvr.update_traces(textposition="outside", marker_line_width=0, width=0.58)
+            fig_nvr.update_layout(showlegend=False, coloraxis_showscale=False, xaxis_title="Câmeras", yaxis_title="")
+            st.plotly_chart(configurar_figura(fig_nvr, 370), use_container_width=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col4:
-            st.markdown('<div class="panel"><div class="panel-title">Qualidade das Gravações</div><div class="panel-subtitle">Classificação da imagem/gravação registrada.</div>', unsafe_allow_html=True)
-            qualidade_df = df.groupby("qualidade_gravacao", dropna=False).size().reset_index(name="total")
-            fig_q = px.bar(
-                qualidade_df,
-                x="qualidade_gravacao",
-                y="total",
-                text="total",
-                color_discrete_sequence=["#FFCC00"],
-                template=template
-            )
-            fig_q.update_traces(textposition="outside", marker_line_color="#D40511", marker_line_width=1)
-            fig_q.update_layout(xaxis_title="Qualidade", yaxis_title="Câmeras")
-            st.plotly_chart(configurar_figura(fig_q, 360), use_container_width=True)
+            st.markdown('<div class="panel"><div class="panel-title">Mapa de Risco Operacional</div><div class="panel-subtitle">Falhas, pendências e câmeras inativas por operação.</div>', unsafe_allow_html=True)
+            risco = op.sort_values("risco", ascending=False)[["operacao", "total", "inativas", "falhas", "sem_gravacao", "pendencias", "risco"]]
+            st.dataframe(risco, use_container_width=True, hide_index=True)
             st.markdown('</div>', unsafe_allow_html=True)
 
-        # Pendências críticas
-        pend = df_work[
-            (df_work["acao_necessaria"].fillna("").str.len() > 0) |
-            (df_work["is_falha"] == True) |
-            (df_work["ativo"] == False)
+        pend = df_norm[
+            (df_norm["has_pendencia"] == True) |
+            (df_norm["is_falha"] == True) |
+            (df_norm["is_sem_gravacao"] == True) |
+            (df_norm["is_inativa"] == True)
         ].copy()
         pend = pend[["id", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(15)
 
@@ -867,46 +855,40 @@ if menu == "📊 Dashboard Executivo":
 elif menu == "📷 Inventário Técnico":
     st.markdown('<div class="panel"><div class="panel-title">Inventário Técnico de Câmeras</div><div class="panel-subtitle">Consulta, filtros e exportação da base técnica do parque de CFTV.</div>', unsafe_allow_html=True)
 
-    if df.empty:
+    if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
         col1, col2, col3, col4 = st.columns(4)
         filtro_operacao = col1.text_input("Operação")
-        filtro_status = col2.selectbox("Status", ["Todos"] + sorted(df["status"].dropna().unique().tolist()))
+        filtro_status = col2.selectbox("Status", ["Todos"] + sorted(df_norm["status"].dropna().unique().tolist()))
         filtro_ativo = col3.selectbox("Situação", ["Todas", "Ativas", "Inativas"])
         filtro_busca = col4.text_input("Busca geral")
 
-        df_filtro = df.copy()
-
+        df_filtro = df_norm.copy()
         if filtro_operacao:
-            df_filtro = df_filtro[df_filtro["operacao"].fillna("").str.contains(filtro_operacao, case=False)]
-
+            df_filtro = df_filtro[df_filtro["operacao"].str.contains(filtro_operacao, case=False, na=False)]
         if filtro_status != "Todos":
             df_filtro = df_filtro[df_filtro["status"] == filtro_status]
-
         if filtro_ativo == "Ativas":
-            df_filtro = df_filtro[df_filtro["ativo"] == True]
+            df_filtro = df_filtro[df_filtro["is_ativa"] == True]
         elif filtro_ativo == "Inativas":
-            df_filtro = df_filtro[df_filtro["ativo"] == False]
-
+            df_filtro = df_filtro[df_filtro["is_inativa"] == True]
         if filtro_busca:
             busca = filtro_busca.lower()
             df_filtro = df_filtro[
-                df_filtro["nome_camera"].fillna("").str.lower().str.contains(busca) |
-                df_filtro["ip_camera"].fillna("").str.lower().str.contains(busca) |
-                df_filtro["nvr"].fillna("").str.lower().str.contains(busca) |
-                df_filtro["rack"].fillna("").str.lower().str.contains(busca)
+                df_filtro["nome_camera"].str.lower().str.contains(busca, na=False) |
+                df_filtro["ip_camera"].str.lower().str.contains(busca, na=False) |
+                df_filtro["nvr"].str.lower().str.contains(busca, na=False) |
+                df_filtro["rack"].str.lower().str.contains(busca, na=False)
             ]
 
-        st.dataframe(df_filtro, use_container_width=True, hide_index=True)
+        cols = ["id", "numero", "operacao", "nome_camera", "canal", "ip_camera", "modelo", "marca", "dias_gravacao", "nvr", "ip_nvr", "rack", "status", "qualidade_gravacao", "observacao", "acao_necessaria", "serie_number", "ativo", "criado_em", "atualizado_em"]
+        cols = [c for c in cols if c in df_filtro.columns]
+        st.dataframe(df_filtro[cols], use_container_width=True, hide_index=True)
 
-        df_filtro.to_excel("inventario_cameras.xlsx", index=False)
+        df_filtro[cols].to_excel("inventario_cameras.xlsx", index=False)
         with open("inventario_cameras.xlsx", "rb") as file:
-            st.download_button(
-                "Baixar inventário em Excel",
-                file,
-                file_name="inventario_cameras.xlsx"
-            )
+            st.download_button("Baixar inventário em Excel", file, file_name="inventario_cameras.xlsx")
 
     st.markdown('</div>', unsafe_allow_html=True)
 
@@ -917,8 +899,7 @@ elif menu == "📷 Inventário Técnico":
 elif menu == "🖼️ Book Visual":
     st.markdown('<div class="panel"><div class="panel-title">Book Visual de Câmeras</div><div class="panel-subtitle">Galeria operacional com imagens e principais informações técnicas.</div>', unsafe_allow_html=True)
 
-    fotos_df = carregar_cameras_com_foto(16)
-
+    fotos_df = carregar_cameras_com_foto(24)
     if fotos_df.empty:
         st.info("Nenhuma câmera disponível para exibição visual.")
     else:
@@ -926,21 +907,29 @@ elif menu == "🖼️ Book Visual":
         for _, row in fotos_df.iterrows():
             img64 = bytes_para_base64(row.get("foto_camera"))
             if img64:
-                img_html = f'<img src="data:image/png;base64,{img64}" />'
+                mime = mime_por_nome(row.get("foto_nome"))
+                img_html = f'<img src="data:{mime};base64,{img64}" alt="Foto da câmera" />'
             else:
-                img_html = 'SEM FOTO'
+                img_html = '<div class="camera-placeholder">📷</div>'
 
-            status = status_label(row.get("status"))
+            status = safe_text(row.get("status"), "Não informado")
             cls = status_class(status)
+            nome_camera = esc(row.get("nome_camera"))
+            operacao = esc(row.get("operacao"))
+            canal = esc(row.get("canal"))
+            ip_camera = esc(row.get("ip_camera"))
+            nvr = esc(row.get("nvr"))
+            rack = esc(row.get("rack"))
+
             cards_html += f"""
             <div class="camera-card">
                 <div class="camera-img">{img_html}</div>
                 <div class="camera-body">
-                    <div class="camera-title">{row.get('nome_camera', '')}</div>
-                    <div class="camera-meta">{row.get('operacao', '')} • Canal {row.get('canal', '')}</div>
-                    <div class="camera-meta">IP: {row.get('ip_camera', '')}</div>
-                    <div class="camera-meta">NVR: {row.get('nvr', '')}</div>
-                    <div style="margin-top:10px;"><span class="status-pill {cls}">{status}</span></div>
+                    <div class="camera-title">{nome_camera}</div>
+                    <div class="camera-meta">{operacao} • Canal {canal}</div>
+                    <div class="camera-meta">IP: {ip_camera}</div>
+                    <div class="camera-meta">NVR: {nvr} • Rack: {rack}</div>
+                    <div style="margin-top:10px;"><span class="status-pill {cls}">{html.escape(status)}</span></div>
                 </div>
             </div>
             """
@@ -994,14 +983,10 @@ elif menu == "➕ Nova Câmera":
         senha_nvr = col19.text_input("Senha NVR", type="password")
         status = col20.selectbox("Status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
 
-        qualidade_gravacao = st.selectbox(
-            "Qualidade da gravação",
-            ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"]
-        )
-
+        qualidade_gravacao = st.selectbox("Qualidade da gravação", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
         observacao = st.text_area("Observação")
         acao_necessaria = st.text_area("Ação necessária")
-        foto_upload = st.file_uploader("Foto / imagem da câmera", type=["png", "jpg", "jpeg"])
+        foto_upload = st.file_uploader("Foto / imagem da câmera", type=["png", "jpg", "jpeg", "webp"])
 
         salvar = st.form_submit_button("Cadastrar câmera")
 
@@ -1010,7 +995,6 @@ elif menu == "➕ Nova Câmera":
                 st.error("Informe o nome da câmera.")
             else:
                 foto_bytes, foto_nome = imagem_para_bytes(foto_upload)
-
                 dados = {
                     "numero": numero,
                     "operacao": operacao,
@@ -1036,7 +1020,6 @@ elif menu == "➕ Nova Câmera":
                     "acao_necessaria": acao_necessaria,
                     "serie_number": serie_number
                 }
-
                 cadastrar_camera(dados, foto_bytes, foto_nome)
                 st.success("Câmera cadastrada com sucesso.")
                 st.rerun()
@@ -1050,13 +1033,13 @@ elif menu == "➕ Nova Câmera":
 elif menu == "🔧 Manutenção":
     st.markdown('<div class="form-section"><h3>Manutenção e Atualização de Status</h3>', unsafe_allow_html=True)
 
-    if df.empty:
+    if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
         camera_id = st.selectbox(
             "Selecione a câmera",
-            df["id"].tolist(),
-            format_func=lambda x: f'{x} - {df[df["id"] == x]["nome_camera"].iloc[0]}'
+            df_norm["id"].tolist(),
+            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}'
         )
 
         status = st.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
@@ -1078,13 +1061,13 @@ elif menu == "🔧 Manutenção":
 elif menu == "🗑️ Desativar / Excluir":
     st.markdown('<div class="form-section"><h3>Desativar ou Excluir Câmera</h3>', unsafe_allow_html=True)
 
-    if df.empty:
+    if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
         camera_id = st.selectbox(
             "Selecione a câmera",
-            df["id"].tolist(),
-            format_func=lambda x: f'{x} - {df[df["id"] == x]["nome_camera"].iloc[0]}'
+            df_norm["id"].tolist(),
+            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}'
         )
 
         st.warning("Recomendação: use desativar para manter histórico. Excluir remove definitivamente o cadastro.")
