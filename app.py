@@ -6,10 +6,10 @@ from sqlalchemy import create_engine, text
 from datetime import datetime
 
 st.set_page_config(
-    page_title="ACF Command HUD v3",
+    page_title="ACF Command Center",
     page_icon="🛡️",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 DATABASE_URL = st.secrets["DATABASE_URL"]
@@ -111,14 +111,14 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;600;700&family=Share+Tech+Mono&display=swap');
 
-:root {
-    --bg: #010509;
-    --panel: rgba(3, 13, 18, .86);
-    --cyan: #00f6ff;
-    --green: #23ff6d;
-    --yellow: #ffd000;
-    --red: #ff3131;
-    --muted: #8faab0;
+:root{
+    --bg:#02070a;
+    --panel:#061114;
+    --cyan:#00f5ff;
+    --green:#24ff6d;
+    --yellow:#ffd000;
+    --red:#ff2f2f;
+    --muted:#8fa8ad;
 }
 
 html, body, [class*="css"] {
@@ -127,532 +127,402 @@ html, body, [class*="css"] {
 
 .stApp {
     background:
-        linear-gradient(rgba(0,0,0,.68), rgba(0,0,0,.92)),
-        radial-gradient(circle at 20% 5%, rgba(0,246,255,.20), transparent 28%),
-        radial-gradient(circle at 80% 0%, rgba(255,208,0,.14), transparent 22%),
-        radial-gradient(circle at 50% 100%, rgba(35,255,109,.09), transparent 35%),
-        repeating-linear-gradient(0deg, rgba(0,246,255,.035) 0px, rgba(0,246,255,.035) 1px, transparent 1px, transparent 5px),
-        #010509;
-    color: #e6fdff;
+        radial-gradient(circle at 25% 10%, rgba(0, 245, 255, .14), transparent 26%),
+        radial-gradient(circle at 80% 5%, rgba(255, 208, 0, .10), transparent 22%),
+        linear-gradient(rgba(0,0,0,.72), rgba(0,0,0,.88)),
+        repeating-linear-gradient(0deg, rgba(0,255,255,.035) 0px, rgba(0,255,255,.035) 1px, transparent 1px, transparent 5px),
+        #02070a;
+    color:#dffcff;
 }
 
-.stApp:before {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9999;
-    background: linear-gradient(
-        to bottom,
-        transparent 0%,
-        rgba(0,246,255,.10) 50%,
-        transparent 100%
-    );
-    height: 120px;
-    animation: globalScan 5s linear infinite;
-    mix-blend-mode: screen;
-}
-
-.stApp:after {
-    content: "";
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    z-index: 9998;
-    background-image:
-        linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
-    background-size: 42px 42px;
-    opacity: .45;
+.block-container {
+    padding: 0.8rem 1rem 1rem 1rem;
+    max-width: 100% !important;
 }
 
 #MainMenu, footer, header {
     visibility: hidden;
 }
 
-.block-container {
-    padding: .6rem 1rem 1rem 1rem;
-    max-width: 100% !important;
-}
-
-.topbar {
+.command-grid {
     display: grid;
-    grid-template-columns: 1fr 370px 210px;
-    gap: 12px;
-    margin-bottom: 12px;
-}
-
-.panel,
-.title-panel,
-.status-panel,
-.clock-panel,
-.kpi-card,
-.forms-panel {
-    position: relative;
-    border: 1px solid rgba(0,246,255,.35);
-    background: linear-gradient(135deg, rgba(4,17,22,.92), rgba(1,7,10,.88));
-    box-shadow:
-        0 0 28px rgba(0,246,255,.08),
-        inset 0 0 24px rgba(0,246,255,.035);
-    overflow: hidden;
-}
-
-.panel:before,
-.title-panel:before,
-.status-panel:before,
-.clock-panel:before,
-.kpi-card:before,
-.forms-panel:before {
-    content: "";
-    position: absolute;
-    top: 0;
-    left: -40%;
-    width: 40%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-    animation: borderRun 3.5s linear infinite;
-}
-
-.panel:after,
-.title-panel:after,
-.status-panel:after,
-.clock-panel:after,
-.kpi-card:after,
-.forms-panel:after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(120deg, transparent 30%, rgba(255,255,255,.045), transparent 70%);
-    transform: translateX(-120%);
-    animation: lightSweep 7s infinite;
-    pointer-events: none;
-}
-
-.title-panel {
-    padding: 16px 22px;
-    clip-path: polygon(0 0, 96% 0, 100% 28%, 100% 100%, 0 100%);
-}
-
-.status-panel,
-.clock-panel {
-    padding: 15px 20px;
-}
-
-.big-title {
-    font-family: 'Orbitron', sans-serif;
-    color: var(--yellow);
-    font-size: 28px;
-    font-weight: 900;
-    letter-spacing: .04em;
-    text-shadow: 0 0 18px rgba(255,208,0,.24);
-    animation: titlePulse 2.8s infinite alternate;
-}
-
-.subtitle {
-    font-family: 'Share Tech Mono', monospace;
-    color: #9eb9bf;
-    font-size: 12px;
-    margin-top: 4px;
-}
-
-.online {
-    font-family: 'Share Tech Mono', monospace;
-    color: var(--green);
-    font-size: 14px;
-    text-shadow: 0 0 14px rgba(35,255,109,.45);
-}
-
-.heartbeat {
-    height: 34px;
-    margin-top: 8px;
-    background:
-        linear-gradient(90deg, transparent, rgba(35,255,109,.10), transparent),
-        repeating-linear-gradient(90deg, transparent 0 18px, rgba(35,255,109,.18) 19px);
-    position: relative;
-}
-
-.heartbeat:after {
-    content: "";
-    position: absolute;
-    left: 0;
-    top: 16px;
-    width: 100%;
-    height: 2px;
-    background: var(--green);
-    clip-path: polygon(0 50%, 10% 50%, 14% 10%, 19% 90%, 23% 50%, 35% 50%, 39% 20%, 43% 78%, 47% 50%, 100% 50%);
-    animation: beat 1.4s infinite linear;
-}
-
-.clock-main {
-    font-family: 'Share Tech Mono', monospace;
-    color: #fff;
-    font-size: 18px;
-}
-
-.clock-sub {
-    font-family: 'Share Tech Mono', monospace;
-    color: #91a9ae;
-    font-size: 12px;
-}
-
-.nav-grid {
-    display: grid;
-    grid-template-columns: 240px 1fr;
-    gap: 12px;
+    grid-template-columns: 250px 1fr;
+    gap: 14px;
 }
 
 .left-rail {
-    border: 1px solid rgba(0,246,255,.35);
-    background: rgba(1,8,11,.88);
-    padding: 13px;
-    min-height: 86vh;
-    box-shadow: 0 0 28px rgba(0,246,255,.08);
+    border: 1px solid rgba(0,245,255,.32);
+    background: rgba(2,10,12,.84);
+    min-height: 92vh;
+    padding: 14px;
+    box-shadow: 0 0 35px rgba(0,245,255,.08);
+    position: relative;
+    overflow: hidden;
+}
+
+.left-rail:before {
+    content:"";
+    position:absolute;
+    top:-80px;
+    left:-80px;
+    width:180px;
+    height:180px;
+    background: radial-gradient(circle, rgba(255,208,0,.22), transparent 65%);
+    animation: pulse 3s infinite alternate;
+}
+
+.logo-box {
+    border-bottom: 1px solid rgba(0,245,255,.28);
+    padding-bottom: 16px;
+    margin-bottom: 18px;
 }
 
 .logo-main {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 25px;
-    font-weight: 900;
-    color: var(--yellow);
+    font-family:'Orbitron', sans-serif;
+    color:var(--yellow);
+    font-size:26px;
+    font-weight:900;
+    line-height:1;
 }
 
 .logo-sub {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
-    color: #dffcff;
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:13px;
+    margin-top:4px;
 }
 
-.side-title {
-    font-family: 'Share Tech Mono', monospace;
-    color: #9ec8ce;
-    font-size: 12px;
-    margin-top: 18px;
+.menu-title {
+    color:#9fd7de;
+    font-family:'Share Tech Mono', monospace;
+    font-size:13px;
+    margin: 16px 0 8px;
+}
+
+.menu-item {
+    border: 1px solid rgba(0,245,255,.18);
+    padding: 10px 12px;
     margin-bottom: 8px;
+    background: rgba(255,255,255,.025);
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:13px;
 }
 
-.side-row {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
+.menu-active {
+    border-color: var(--yellow);
+    color: var(--yellow);
+    box-shadow: inset 4px 0 0 var(--yellow), 0 0 18px rgba(255,208,0,.18);
+}
+
+.ops-row {
+    display:flex;
+    justify-content:space-between;
+    border-bottom:1px solid rgba(255,255,255,.06);
     padding: 7px 0;
-    border-bottom: 1px solid rgba(255,255,255,.06);
-    display: flex;
-    justify-content: space-between;
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
 }
 
-.dot-green,
-.dot-red,
-.dot-yellow,
-.dot-cyan {
-    width: 9px;
-    height: 9px;
-    display: inline-block;
-    border-radius: 50%;
-    margin-right: 6px;
+.dot-green, .dot-red, .dot-yellow {
+    width:9px;
+    height:9px;
+    border-radius:50%;
+    display:inline-block;
+    margin-right:7px;
 }
 
-.dot-green { background: var(--green); box-shadow: 0 0 12px var(--green); }
-.dot-red { background: var(--red); box-shadow: 0 0 12px var(--red); }
-.dot-yellow { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); }
-.dot-cyan { background: var(--cyan); box-shadow: 0 0 12px var(--cyan); }
+.dot-green {background:var(--green); box-shadow:0 0 10px var(--green);}
+.dot-red {background:var(--red); box-shadow:0 0 10px var(--red);}
+.dot-yellow {background:var(--yellow); box-shadow:0 0 10px var(--yellow);}
 
-.kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 12px;
+.main-screen {
+    min-height: 92vh;
+}
+
+.topbar {
+    display:grid;
+    grid-template-columns: 1fr 380px 190px;
+    gap:12px;
     margin-bottom: 12px;
 }
 
-.kpi-card {
-    min-height: 110px;
-    padding: 14px;
+.title-panel, .status-panel, .map-panel {
+    border:1px solid rgba(0,245,255,.32);
+    background: rgba(2,12,15,.80);
+    padding:16px 20px;
+    position:relative;
+    overflow:hidden;
+    box-shadow: 0 0 24px rgba(0,245,255,.07);
+}
+
+.title-panel:before, .status-panel:before, .map-panel:before, .hud-card:before, .panel:before {
+    content:"";
+    position:absolute;
+    top:0;
+    left:0;
+    width:48px;
+    height:3px;
+    background:var(--cyan);
+    animation: scan 2.5s infinite;
+}
+
+.big-title {
+    font-family:'Orbitron', sans-serif;
+    color:var(--yellow);
+    font-size:30px;
+    font-weight:900;
+    letter-spacing:.03em;
+}
+
+.subtitle {
+    font-family:'Share Tech Mono', monospace;
+    color:#8fb2b8;
+    font-size:13px;
+    margin-top:5px;
+}
+
+.online {
+    font-family:'Share Tech Mono', monospace;
+    color:var(--green);
+    font-size:14px;
+}
+
+.clock {
+    font-family:'Share Tech Mono', monospace;
+    color:#fff;
+    font-size:15px;
+}
+
+.kpi-grid {
+    display:grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap:12px;
+    margin-bottom:12px;
+}
+
+.hud-card {
+    border:1px solid rgba(0,245,255,.30);
+    background: linear-gradient(135deg, rgba(5,20,24,.92), rgba(2,8,10,.84));
+    padding:14px;
+    min-height:110px;
+    position:relative;
+    box-shadow:0 0 28px rgba(0,245,255,.07);
 }
 
 .kpi-label {
-    font-family: 'Share Tech Mono', monospace;
-    color: #9db5bb;
-    font-size: 11px;
-    text-transform: uppercase;
+    font-family:'Share Tech Mono', monospace;
+    color:#a4b8bd;
+    font-size:12px;
+    text-transform:uppercase;
 }
 
 .kpi-value {
-    font-family: 'Orbitron', sans-serif;
-    font-size: 30px;
-    font-weight: 900;
-    color: var(--green);
-    margin-top: 6px;
+    font-family:'Orbitron', sans-serif;
+    color:var(--green);
+    font-size:30px;
+    font-weight:900;
+    margin-top:6px;
 }
 
-.kpi-yellow { color: var(--yellow); }
-.kpi-red { color: var(--red); }
-.kpi-cyan { color: var(--cyan); }
+.kpi-yellow { color:var(--yellow); }
+.kpi-red { color:var(--red); }
+.kpi-cyan { color:var(--cyan); }
 
 .kpi-mini {
-    font-family: 'Share Tech Mono', monospace;
-    color: #788f94;
-    font-size: 11px;
+    font-family:'Share Tech Mono', monospace;
+    color:#7e9599;
+    font-size:11px;
 }
 
-.dashboard-row {
-    display: grid;
-    grid-template-columns: 1fr 1.15fr .9fr 1fr;
-    gap: 12px;
-    margin-bottom: 12px;
+.dashboard-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1.1fr .9fr 1fr;
+    gap:12px;
+    margin-bottom:12px;
 }
 
-.dashboard-row-2 {
-    display: grid;
-    grid-template-columns: 1.1fr 1.9fr;
-    gap: 12px;
-    margin-bottom: 12px;
+.middle-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1.7fr;
+    gap:12px;
+    margin-bottom:12px;
 }
 
-.dashboard-row-3 {
-    display: grid;
-    grid-template-columns: 1.2fr 1fr .9fr;
-    gap: 12px;
+.bottom-grid {
+    display:grid;
+    grid-template-columns: 1.1fr 1fr .9fr;
+    gap:12px;
 }
 
 .panel {
-    padding: 13px;
-    min-height: 285px;
+    border:1px solid rgba(0,245,255,.32);
+    background: rgba(2,12,15,.80);
+    padding:13px;
+    position:relative;
+    min-height:285px;
+    box-shadow:0 0 30px rgba(0,245,255,.06);
+    overflow:hidden;
 }
 
 .panel-title {
-    font-family: 'Share Tech Mono', monospace;
-    color: #e6fdff;
-    font-size: 14px;
-    text-transform: uppercase;
-    margin-bottom: 8px;
+    font-family:'Share Tech Mono', monospace;
+    color:#dffcff;
+    font-size:15px;
+    margin-bottom:10px;
+    text-transform:uppercase;
 }
 
 .fake-map {
     height: 300px;
-    border: 1px solid rgba(0,246,255,.25);
     background:
-        radial-gradient(circle at 25% 52%, rgba(35,255,109,.42), transparent 5%),
-        radial-gradient(circle at 48% 42%, rgba(255,208,0,.40), transparent 5%),
-        radial-gradient(circle at 73% 58%, rgba(35,255,109,.35), transparent 5%),
-        radial-gradient(circle at 80% 28%, rgba(0,246,255,.30), transparent 4%),
-        repeating-linear-gradient(35deg, transparent 0 18px, rgba(0,246,255,.08) 19px),
-        linear-gradient(135deg, #041116, #010609);
-    position: relative;
-    overflow: hidden;
-}
-
-.fake-map:before {
-    content: "";
-    position: absolute;
-    inset: -40%;
-    background:
-        linear-gradient(90deg, transparent 48%, rgba(0,246,255,.25) 50%, transparent 52%),
-        linear-gradient(0deg, transparent 48%, rgba(0,246,255,.22) 50%, transparent 52%);
-    animation: mapGridMove 8s linear infinite;
+        radial-gradient(circle at 22% 55%, rgba(36,255,109,.35), transparent 4%),
+        radial-gradient(circle at 48% 40%, rgba(255,208,0,.35), transparent 4%),
+        radial-gradient(circle at 70% 60%, rgba(36,255,109,.32), transparent 4%),
+        radial-gradient(circle at 78% 30%, rgba(36,255,109,.28), transparent 3%),
+        repeating-linear-gradient(35deg, transparent 0px, transparent 19px, rgba(0,245,255,.08) 20px),
+        linear-gradient(135deg, #041114, #020608);
+    border:1px solid rgba(0,245,255,.22);
+    position:relative;
+    overflow:hidden;
 }
 
 .fake-map:after {
-    content: "";
-    position: absolute;
-    left: -30%;
-    top: -20%;
-    width: 160%;
-    height: 2px;
-    background: linear-gradient(90deg, transparent, rgba(0,246,255,.65), transparent);
-    animation: mapSweep 3.5s linear infinite;
+    content:"";
+    position:absolute;
+    width:160%;
+    height:2px;
+    left:-30%;
+    top:0;
+    background:linear-gradient(90deg, transparent, rgba(0,245,255,.55), transparent);
+    animation: sweep 3s infinite linear;
 }
 
 .node {
-    position: absolute;
-    z-index: 2;
-    border: 1px solid rgba(35,255,109,.8);
-    background: rgba(0,0,0,.66);
-    color: #caffd8;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
-    padding: 7px 9px;
-    box-shadow: 0 0 20px rgba(35,255,109,.28);
-    animation: nodePulse 2.2s infinite alternate;
-}
-
-.radar {
-    width: 210px;
-    height: 210px;
-    margin: 20px auto;
-    border-radius: 50%;
-    border: 1px solid rgba(0,246,255,.42);
-    background:
-        radial-gradient(circle, rgba(0,246,255,.08) 0 8%, transparent 9% 24%, rgba(0,246,255,.07) 25% 26%, transparent 27% 48%, rgba(0,246,255,.07) 49% 50%, transparent 51%),
-        conic-gradient(from 0deg, rgba(0,246,255,.48), transparent 48deg, transparent 360deg);
-    position: relative;
-    animation: radarSpin 3s linear infinite;
-    box-shadow: 0 0 30px rgba(0,246,255,.18);
-}
-
-.radar:after {
-    content: "";
-    position: absolute;
-    inset: 48%;
-    border-radius: 50%;
-    background: var(--green);
-    box-shadow: 0 0 18px var(--green);
+    position:absolute;
+    border:1px solid rgba(36,255,109,.7);
+    background:rgba(0,0,0,.58);
+    color:#caffd8;
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
+    padding:6px 9px;
+    box-shadow:0 0 20px rgba(36,255,109,.22);
 }
 
 .feed-grid {
-    display: grid;
+    display:grid;
     grid-template-columns: repeat(4, 1fr);
-    gap: 9px;
+    gap:9px;
 }
 
 .camera-feed {
-    height: 118px;
-    border: 1px solid rgba(0,246,255,.28);
+    height:118px;
+    border:1px solid rgba(0,245,255,.28);
     background:
-        linear-gradient(rgba(0,0,0,.10), rgba(0,0,0,.72)),
-        repeating-linear-gradient(90deg, rgba(255,255,255,.055) 0px, rgba(255,255,255,.055) 1px, transparent 1px, transparent 7px),
-        radial-gradient(circle at center, rgba(180,205,215,.25), transparent 72%),
-        #121c22;
-    position: relative;
-    overflow: hidden;
+        linear-gradient(rgba(0,0,0,.1), rgba(0,0,0,.65)),
+        repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0px, rgba(255,255,255,.06) 1px, transparent 1px, transparent 7px),
+        radial-gradient(circle at center, rgba(160,190,200,.25), transparent 70%),
+        #111a1f;
+    position:relative;
+    overflow:hidden;
 }
 
 .camera-feed:before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(120deg, transparent, rgba(255,255,255,.20), transparent);
-    transform: translateX(-130%);
-    animation: cameraSweep 4s infinite;
-}
-
-.camera-feed:after {
-    content: "LIVE";
-    position: absolute;
-    top: 6px;
-    right: 7px;
-    font-family: 'Share Tech Mono', monospace;
-    color: var(--green);
-    font-size: 10px;
+    content:"";
+    position:absolute;
+    inset:0;
+    background:linear-gradient(120deg, transparent, rgba(255,255,255,.18), transparent);
+    transform:translateX(-120%);
+    animation: shine 4s infinite;
 }
 
 .feed-label {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 5px 7px;
-    background: rgba(0,0,0,.78);
-    color: #e6fdff;
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 10px;
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    padding:5px 7px;
+    background:rgba(0,0,0,.72);
+    color:#dffcff;
+    font-family:'Share Tech Mono', monospace;
+    font-size:11px;
 }
 
 .log-line {
-    font-family: 'Share Tech Mono', monospace;
-    font-size: 12px;
-    padding: 5px 0;
-    border-bottom: 1px solid rgba(255,255,255,.06);
+    font-family:'Share Tech Mono', monospace;
+    font-size:12px;
+    padding:5px 0;
+    border-bottom:1px solid rgba(255,255,255,.05);
 }
 
 .progress-bar {
-    height: 9px;
-    background: rgba(255,255,255,.10);
-    margin-top: 8px;
-    overflow: hidden;
+    height:8px;
+    background:rgba(255,255,255,.10);
+    margin:7px 0;
+    position:relative;
 }
 
 .progress-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--green), var(--cyan));
-    box-shadow: 0 0 14px rgba(0,246,255,.55);
-    animation: progressGlow 1.5s infinite alternate;
+    height:100%;
+    background:linear-gradient(90deg, var(--green), var(--cyan));
+    box-shadow:0 0 14px rgba(0,245,255,.45);
 }
 
 .forms-panel {
-    padding: 18px;
+    border:1px solid rgba(0,245,255,.32);
+    background:rgba(2,12,15,.86);
+    padding:18px;
+    box-shadow:0 0 30px rgba(0,245,255,.08);
 }
 
-.stButton button,
-.stDownloadButton button {
-    background: linear-gradient(90deg, var(--yellow), #b88a00) !important;
-    color: #010509 !important;
-    border: 0 !important;
-    border-radius: 0 !important;
-    font-family: 'Share Tech Mono', monospace !important;
-    text-transform: uppercase;
-    font-weight: 900 !important;
+div[data-testid="stDataFrame"] {
+    border:1px solid rgba(0,245,255,.28);
 }
 
-input,
-textarea {
-    background: rgba(0,0,0,.48) !important;
-    color: #e6fdff !important;
-    border: 1px solid rgba(0,246,255,.36) !important;
-    border-radius: 0 !important;
+.stButton button, .stDownloadButton button {
+    background:linear-gradient(90deg, var(--yellow), #b88a00) !important;
+    color:#02070a !important;
+    border:0 !important;
+    border-radius:0 !important;
+    font-family:'Share Tech Mono', monospace !important;
+    text-transform:uppercase;
+    font-weight:900 !important;
+}
+
+input, textarea {
+    background:rgba(0,0,0,.45) !important;
+    color:#dffcff !important;
+    border:1px solid rgba(0,245,255,.35) !important;
+    border-radius:0 !important;
 }
 
 div[data-baseweb="select"] > div {
-    background: rgba(0,0,0,.48) !important;
-    color: #e6fdff !important;
-    border: 1px solid rgba(0,246,255,.36) !important;
-    border-radius: 0 !important;
+    background:rgba(0,0,0,.45) !important;
+    color:#dffcff !important;
+    border:1px solid rgba(0,245,255,.35) !important;
+    border-radius:0 !important;
 }
 
-@keyframes globalScan {
-    0% { transform: translateY(-140px); opacity: .15; }
-    50% { opacity: .55; }
-    100% { transform: translateY(110vh); opacity: .10; }
+@keyframes scan {
+    0% {left:0; opacity:.2;}
+    50% {left:70%; opacity:1;}
+    100% {left:0; opacity:.2;}
 }
 
-@keyframes borderRun {
-    0% { left: -40%; opacity: .2; }
-    50% { opacity: 1; }
-    100% { left: 120%; opacity: .2; }
+@keyframes pulse {
+    from {opacity:.25; transform:scale(.9);}
+    to {opacity:.75; transform:scale(1.1);}
 }
 
-@keyframes lightSweep {
-    0% { transform: translateX(-130%); }
-    40% { transform: translateX(130%); }
-    100% { transform: translateX(130%); }
+@keyframes sweep {
+    from {top:-10%;}
+    to {top:110%;}
 }
 
-@keyframes titlePulse {
-    from { text-shadow: 0 0 12px rgba(255,208,0,.20); }
-    to { text-shadow: 0 0 26px rgba(255,208,0,.45); }
-}
-
-@keyframes beat {
-    0% { transform: translateX(-18%); opacity: .45; }
-    50% { opacity: 1; }
-    100% { transform: translateX(18%); opacity: .55; }
-}
-
-@keyframes mapSweep {
-    from { transform: translateY(-80px); }
-    to { transform: translateY(440px); }
-}
-
-@keyframes mapGridMove {
-    from { transform: translate(0,0); }
-    to { transform: translate(80px,80px); }
-}
-
-@keyframes nodePulse {
-    from { transform: scale(1); }
-    to { transform: scale(1.04); }
-}
-
-@keyframes radarSpin {
-    to { transform: rotate(360deg); }
-}
-
-@keyframes cameraSweep {
-    0% { transform: translateX(-130%); }
-    45% { transform: translateX(130%); }
-    100% { transform: translateX(130%); }
-}
-
-@keyframes progressGlow {
-    from { filter: brightness(1); }
-    to { filter: brightness(1.45); }
+@keyframes shine {
+    0% {transform:translateX(-120%);}
+    45% {transform:translateX(120%);}
+    100% {transform:translateX(120%);}
 }
 </style>
 """, unsafe_allow_html=True)
@@ -671,34 +541,46 @@ if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
 
 
-def nav(label):
+def nav_button(label):
+    active = "menu-active" if st.session_state.page == label else ""
     if st.sidebar.button(label, use_container_width=True):
         st.session_state.page = label
         st.rerun()
 
 
 with st.sidebar:
-    st.markdown("<div class='logo-main'>ACF COMMAND</div><div class='logo-sub'>CONTROL SYSTEM</div>", unsafe_allow_html=True)
-    st.markdown("<div class='side-title'>NAVEGAÇÃO</div>", unsafe_allow_html=True)
-    nav("Dashboard")
-    nav("Inventário")
-    nav("Cadastrar Câmera")
-    nav("Atualizar Status")
-    nav("Desativar / Excluir")
+    st.markdown("""
+    <div class="logo-box">
+        <div class="logo-main">ACF COMMAND</div>
+        <div class="logo-sub">CONTROL SYSTEM</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    st.markdown("<div class='side-title'>OPERAÇÕES</div>", unsafe_allow_html=True)
+    st.markdown("### NAVEGAÇÃO")
+    nav_button("Dashboard")
+    nav_button("Inventário")
+    nav_button("Cadastrar Câmera")
+    nav_button("Atualizar Status")
+    nav_button("Desativar / Excluir")
+
+    st.markdown("---")
+    st.markdown("### OPERAÇÕES")
     if not df.empty:
         ops = df.groupby("operacao", dropna=False).size().reset_index(name="total")
         for _, row in ops.iterrows():
-            st.markdown(f"<div class='side-row'><span><span class='dot-green'></span>{row['operacao']}</span><span>{row['total']}</span></div>", unsafe_allow_html=True)
+            st.markdown(
+                f"<div class='ops-row'><span><span class='dot-green'></span>{row['operacao']}</span><span>{row['total']}</span></div>",
+                unsafe_allow_html=True
+            )
     else:
-        st.markdown("<div class='side-row'>SEM DADOS</div>", unsafe_allow_html=True)
+        st.info("Sem operações cadastradas.")
 
-    st.markdown("<div class='side-title'>ALERTAS</div>", unsafe_allow_html=True)
+    st.markdown("---")
+    st.markdown("### ALERTAS")
     if manutencao:
-        st.markdown(f"<div class='side-row'><span><span class='dot-red'></span>AÇÕES PENDENTES</span><span>{manutencao}</span></div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='ops-row'><span><span class='dot-red'></span>AÇÕES PENDENTES</span><span>{manutencao}</span></div>", unsafe_allow_html=True)
     else:
-        st.markdown("<div class='side-row'><span><span class='dot-green'></span>SEM ALERTAS</span><span>OK</span></div>", unsafe_allow_html=True)
+        st.markdown("<div class='ops-row'><span><span class='dot-green'></span>SEM ALERTAS</span><span>OK</span></div>", unsafe_allow_html=True)
 
 
 hora = datetime.now().strftime("%H:%M:%S")
@@ -708,57 +590,55 @@ st.markdown(f"""
 <div class="topbar">
     <div class="title-panel">
         <div class="big-title">ACF COMMAND | SECURITY CAMERA CENTER</div>
-        <div class="subtitle">SISTEMA DE GESTÃO DE CÂMERAS • ACF EXTREMA • MONITORAMENTO CINEMÁTICO</div>
+        <div class="subtitle">SISTEMA DE GESTÃO DE CÂMERAS • ACF EXTREMA • MONITORAMENTO OPERACIONAL</div>
     </div>
     <div class="status-panel">
         <div class="online">● SISTEMA ONLINE</div>
         <div class="online">STATUS: OPERACIONAL</div>
-        <div class="heartbeat"></div>
     </div>
-    <div class="clock-panel">
-        <div class="clock-main">{hora}</div>
-        <div class="clock-sub">{data}</div>
-        <div class="clock-sub">ACF EXTREMA</div>
+    <div class="map-panel">
+        <div class="clock">{hora}</div>
+        <div class="clock">{data}</div>
     </div>
 </div>
 """, unsafe_allow_html=True)
 
 
-def donut(labels, values):
+def make_donut(labels, values):
     fig = go.Figure(data=[go.Pie(
         labels=labels,
         values=values,
-        hole=.70,
-        textinfo="none",
-        marker=dict(colors=["#23ff6d", "#ff3131", "#ffd000", "#00f6ff", "#8faab0"])
+        hole=.68,
+        marker=dict(colors=["#24ff6d", "#ff2f2f", "#ffd000", "#00f5ff"]),
+        textinfo="none"
     )])
     fig.update_layout(
-        height=245,
-        margin=dict(l=0, r=0, t=0, b=0),
+        height=250,
+        margin=dict(l=5, r=5, t=5, b=5),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color="#e6fdff")
+        font=dict(color="#dffcff")
     )
     return fig
 
 
-def bar(df_bar, x, y):
+def make_bar(df_bar, x, y):
     fig = px.bar(
         df_bar,
         x=x,
         y=y,
         orientation="h",
         text=x,
-        color_discrete_sequence=["#00c9bd"]
+        color_discrete_sequence=["#00c9b7"]
     )
     fig.update_layout(
-        height=245,
-        margin=dict(l=0, r=0, t=0, b=0),
+        height=260,
+        margin=dict(l=5, r=5, t=5, b=5),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,246,255,.035)",
-        font=dict(color="#e6fdff"),
-        xaxis=dict(gridcolor="rgba(0,246,255,.08)"),
-        yaxis=dict(gridcolor="rgba(0,246,255,.04)")
+        plot_bgcolor="rgba(0,20,24,.22)",
+        font=dict(color="#dffcff"),
+        xaxis=dict(gridcolor="rgba(0,245,255,.09)"),
+        yaxis=dict(gridcolor="rgba(0,245,255,.04)")
     )
     return fig
 
@@ -766,91 +646,95 @@ def bar(df_bar, x, y):
 if st.session_state.page == "Dashboard":
     st.markdown(f"""
     <div class="kpi-grid">
-        <div class="kpi-card"><div class="kpi-label">Total Câmeras</div><div class="kpi-value kpi-yellow">{total}</div><div class="kpi-mini">100% do parque</div></div>
-        <div class="kpi-card"><div class="kpi-label">Ativas</div><div class="kpi-value">{ativas}</div><div class="kpi-mini">em operação</div></div>
-        <div class="kpi-card"><div class="kpi-label">Inativas</div><div class="kpi-value kpi-red">{inativas}</div><div class="kpi-mini">fora de operação</div></div>
-        <div class="kpi-card"><div class="kpi-label">Manutenção</div><div class="kpi-value kpi-yellow">{manutencao}</div><div class="kpi-mini">ação necessária</div></div>
-        <div class="kpi-card"><div class="kpi-label">NVRs Online</div><div class="kpi-value kpi-cyan">{nvrs}</div><div class="kpi-mini">gravadores</div></div>
-        <div class="kpi-card"><div class="kpi-label">Disponibilidade</div><div class="kpi-value">{disponibilidade}%</div><div class="kpi-mini">sistema</div></div>
+        <div class="hud-card"><div class="kpi-label">Total Câmeras</div><div class="kpi-value kpi-yellow">{total}</div><div class="kpi-mini">100% do parque</div></div>
+        <div class="hud-card"><div class="kpi-label">Ativas</div><div class="kpi-value">{ativas}</div><div class="kpi-mini">em operação</div></div>
+        <div class="hud-card"><div class="kpi-label">Inativas</div><div class="kpi-value kpi-red">{inativas}</div><div class="kpi-mini">fora de operação</div></div>
+        <div class="hud-card"><div class="kpi-label">Manutenção</div><div class="kpi-value kpi-yellow">{manutencao}</div><div class="kpi-mini">ação necessária</div></div>
+        <div class="hud-card"><div class="kpi-label">NVRs Online</div><div class="kpi-value kpi-cyan">{nvrs}</div><div class="kpi-mini">gravadores</div></div>
+        <div class="hud-card"><div class="kpi-label">Disponibilidade</div><div class="kpi-value">{disponibilidade}%</div><div class="kpi-mini">sistema</div></div>
     </div>
     """, unsafe_allow_html=True)
 
     if df.empty:
-        st.warning("Nenhuma câmera cadastrada.")
+        st.warning("Nenhuma câmera cadastrada ainda.")
     else:
-        c1, c2, c3, c4 = st.columns([1, 1.15, .9, 1])
+        col1, col2, col3, col4 = st.columns([1.05, 1.1, .9, 1.05])
 
-        with c1:
+        with col1:
             st.markdown("<div class='panel'><div class='panel-title'>Distribuição por Status</div>", unsafe_allow_html=True)
             status_df = df.groupby("status", dropna=False).size().reset_index(name="total")
-            st.plotly_chart(donut(status_df["status"], status_df["total"]), use_container_width=True)
+            st.plotly_chart(make_donut(status_df["status"], status_df["total"]), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with c2:
+        with col2:
             st.markdown("<div class='panel'><div class='panel-title'>Câmeras por Operação</div>", unsafe_allow_html=True)
             op_df = df.groupby("operacao", dropna=False).size().reset_index(name="total").sort_values("total")
-            st.plotly_chart(bar(op_df, "total", "operacao"), use_container_width=True)
+            st.plotly_chart(make_bar(op_df, "total", "operacao"), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with c3:
-            st.markdown("<div class='panel'><div class='panel-title'>Radar Operacional</div><div class='radar'></div>", unsafe_allow_html=True)
+        with col3:
+            st.markdown("<div class='panel'><div class='panel-title'>Carga por NVR</div>", unsafe_allow_html=True)
+            nvr_df = df.groupby("nvr", dropna=False).size().reset_index(name="total").sort_values("total")
+            st.plotly_chart(make_bar(nvr_df, "total", "nvr"), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        with c4:
+        with col4:
             st.markdown("<div class='panel'><div class='panel-title'>Qualidade de Gravação</div>", unsafe_allow_html=True)
             q_df = df.groupby("qualidade_gravacao", dropna=False).size().reset_index(name="total")
-            st.plotly_chart(donut(q_df["qualidade_gravacao"], q_df["total"]), use_container_width=True)
+            st.plotly_chart(make_donut(q_df["qualidade_gravacao"], q_df["total"]), use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        c5, c6 = st.columns([1.15, 1.85])
+        col5, col6 = st.columns([1.15, 1.85])
 
-        with c5:
+        with col5:
             st.markdown("""
             <div class="panel">
-                <div class="panel-title">Mapa Operacional Animado</div>
+                <div class="panel-title">Mapa Operacional</div>
                 <div class="fake-map">
                     <div class="node" style="left:18%; top:52%;">ABBVIE<br>342 CÂMERAS</div>
-                    <div class="node" style="left:42%; top:38%;">CHIESI<br>128 CÂMERAS</div>
-                    <div class="node" style="left:67%; top:58%;">PHILIPS<br>96 CÂMERAS</div>
+                    <div class="node" style="left:42%; top:37%;">CHIESI<br>128 CÂMERAS</div>
+                    <div class="node" style="left:67%; top:55%;">PHILIPS<br>96 CÂMERAS</div>
                     <div class="node" style="left:72%; top:25%;">SANOFI<br>72 CÂMERAS</div>
                     <div class="node" style="left:30%; top:72%;">ADIUM<br>186 CÂMERAS</div>
                 </div>
             </div>
             """, unsafe_allow_html=True)
 
-        with c6:
+        with col6:
             feeds = ""
-            for _, r in df.head(8).iterrows():
+            cameras_feed = df.head(8)
+            for _, r in cameras_feed.iterrows():
                 dot = "dot-green" if str(r["status"]).upper() == "ATIVA" else "dot-red"
                 feeds += f"""
                 <div class="camera-feed">
                     <div class="feed-label"><span class="{dot}"></span>{r['nome_camera']} - {r['operacao']}<br>{r['status']}</div>
                 </div>
                 """
+
             st.markdown(f"""
             <div class="panel">
-                <div class="panel-title">Feed de Câmeras - Simulação Visual</div>
+                <div class="panel-title">Feed de Câmeras - Tempo Real</div>
                 <div class="feed-grid">{feeds}</div>
             </div>
             """, unsafe_allow_html=True)
 
-        c7, c8, c9 = st.columns([1.2, 1, .9])
+        col7, col8, col9 = st.columns([1.1, 1, .9])
 
-        with c7:
+        with col7:
             st.markdown("""
-            <div class="panel" style="min-height:205px;">
+            <div class="panel" style="min-height:200px;">
                 <div class="panel-title">Log de Atividades</div>
-                <div class="log-line"><span class="dot-green"></span>15:42:10 Câmera voltou ao ar</div>
-                <div class="log-line"><span class="dot-red"></span>15:41:22 NVR com carga elevada</div>
-                <div class="log-line"><span class="dot-yellow"></span>15:40:05 Atualização realizada</div>
-                <div class="log-line"><span class="dot-cyan"></span>15:38:42 Varredura operacional concluída</div>
+                <div class="log-line"><span class="dot-green"></span>15:42:10 Câmera CAM-001 voltou ao ar</div>
+                <div class="log-line"><span class="dot-red"></span>15:41:22 NVR-03 carga acima de 80%</div>
+                <div class="log-line"><span class="dot-yellow"></span>15:40:05 Usuário realizou atualização</div>
+                <div class="log-line"><span class="dot-green"></span>15:38:42 Backup concluído com sucesso</div>
             </div>
             """, unsafe_allow_html=True)
 
-        with c8:
+        with col8:
             carga = min(100, int((total / max(nvrs, 1)) * 4)) if total else 0
             st.markdown(f"""
-            <div class="panel" style="min-height:205px;">
+            <div class="panel" style="min-height:200px;">
                 <div class="panel-title">Status dos NVRs</div>
                 <div class="log-line">NVRs cadastrados: {nvrs}</div>
                 <div class="log-line">Câmeras totais: {total}</div>
@@ -860,16 +744,16 @@ if st.session_state.page == "Dashboard":
             </div>
             """, unsafe_allow_html=True)
 
-        with c9:
+        with col9:
             meta = 1300
             progresso = round((total / meta) * 100, 1) if total else 0
             st.markdown(f"""
-            <div class="panel" style="min-height:205px;">
+            <div class="panel" style="min-height:200px;">
                 <div class="panel-title">Expansão do Parque</div>
                 <div class="kpi-value kpi-yellow">{progresso}%</div>
                 <div class="log-line">Meta: {meta} câmeras</div>
                 <div class="log-line">Atual: {total} câmeras</div>
-                <div class="log-line">Faltando: {max(meta-total,0)}</div>
+                <div class="log-line">Faltando: {max(meta-total,0)} câmeras</div>
             </div>
             """, unsafe_allow_html=True)
 
