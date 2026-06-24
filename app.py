@@ -107,118 +107,125 @@ def excluir_camera(camera_id):
 
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
 }
 
 .stApp {
-    background:
-        radial-gradient(circle at top left, rgba(255, 204, 0, .14), transparent 28%),
-        radial-gradient(circle at top right, rgba(0, 229, 255, .12), transparent 28%),
-        linear-gradient(135deg, #040711 0%, #0b1020 45%, #02040a 100%);
-    color: #f8fafc;
+    background: #f4f6f9;
+    color: #1f2937;
+}
+
+.block-container {
+    padding-top: 1.5rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
 }
 
 section[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #050816 0%, #0d1327 100%);
-    border-right: 1px solid rgba(255,255,255,.08);
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    box-shadow: 4px 0 20px rgba(0,0,0,0.04);
+}
+
+section[data-testid="stSidebar"] * {
+    color: #1f2937 !important;
 }
 
 h1, h2, h3 {
-    color: #f8fafc !important;
-    letter-spacing: -0.04em;
+    color: #111827 !important;
+    letter-spacing: -0.03em;
 }
 
 .hero {
-    padding: 34px;
-    border-radius: 28px;
-    background: linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.04));
-    border: 1px solid rgba(255,255,255,.13);
-    box-shadow: 0 25px 80px rgba(0,0,0,.40);
+    padding: 32px;
+    border-radius: 24px;
+    background: linear-gradient(135deg, #ffffff 0%, #f9fafb 100%);
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.06);
     margin-bottom: 24px;
 }
 
 .hero h1 {
-    font-size: 42px;
-    margin-bottom: 6px;
-    background: linear-gradient(90deg, #ffffff, #ffcc00, #00e5ff);
-    -webkit-background-clip: text;
-    color: transparent !important;
+    font-size: 40px;
+    margin-bottom: 8px;
+    color: #111827 !important;
+    font-weight: 800;
 }
 
 .hero p {
-    color: #aab4cf;
+    color: #6b7280;
     font-size: 15px;
 }
 
 .kpi {
     padding: 24px;
-    border-radius: 24px;
-    background: rgba(255,255,255,.075);
-    border: 1px solid rgba(255,255,255,.13);
-    box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 16px 50px rgba(0,0,0,.30);
+    border-radius: 22px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.05);
 }
 
 .kpi span {
-    color: #9aa4bf;
+    color: #6b7280;
     font-size: 12px;
     text-transform: uppercase;
-    letter-spacing: .13em;
+    letter-spacing: .12em;
+    font-weight: 700;
 }
 
 .kpi strong {
     display: block;
-    color: #ffcc00;
-    font-size: 38px;
-    margin-top: 10px;
+    color: #111827;
+    font-size: 36px;
+    margin-top: 8px;
+    font-weight: 800;
 }
 
 .kpi small {
-    color: #8fa3c7;
-}
-
-div[data-testid="stMetric"] {
-    background: rgba(255,255,255,.075);
-    padding: 22px;
-    border-radius: 22px;
-    border: 1px solid rgba(255,255,255,.12);
-}
-
-div[data-testid="stMetricValue"] {
-    color: #ffcc00;
-    font-size: 34px;
+    color: #6b7280;
 }
 
 .stButton button {
-    border-radius: 14px;
-    background: linear-gradient(90deg, #ffcc00, #00e5ff);
-    color: #020409;
+    border-radius: 12px;
+    background: #ffcc00;
+    color: #111827;
     border: 0;
     font-weight: 800;
+}
+
+.stButton button:hover {
+    background: #eab308;
+    color: #111827;
 }
 
 .stDownloadButton button {
-    border-radius: 14px;
-    background: #ffcc00;
-    color: #020409;
+    border-radius: 12px;
+    background: #111827;
+    color: #ffffff;
     border: 0;
-    font-weight: 800;
+    font-weight: 700;
 }
 
 [data-testid="stDataFrame"] {
-    border-radius: 22px;
+    border-radius: 18px;
     overflow: hidden;
-    border: 1px solid rgba(255,255,255,.12);
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 10px 28px rgba(0,0,0,0.05);
 }
 
 input, textarea, select {
-    border-radius: 14px !important;
+    border-radius: 12px !important;
 }
 
-.block-container {
-    padding-top: 2rem;
+div[data-baseweb="select"] > div {
+    border-radius: 12px !important;
+}
+
+hr {
+    border-color: #e5e7eb;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -229,7 +236,7 @@ df = carregar_cameras()
 st.markdown("""
 <div class="hero">
     <h1>Security Camera Command Center</h1>
-    <p>Gestão inteligente do parque de CFTV | Inventário, disponibilidade, NVRs, gravações e expansão operacional.</p>
+    <p>Sistema corporativo para gestão do parque de CFTV, inventário técnico, disponibilidade, NVRs, gravações e pendências operacionais.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -266,7 +273,7 @@ if menu == "Dashboard Executivo":
     else:
         col1, col2 = st.columns(2)
 
-        template = "plotly_dark"
+        template = "plotly_white"
 
         with col1:
             fig = px.pie(
@@ -279,7 +286,7 @@ if menu == "Dashboard Executivo":
             fig.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
                 plot_bgcolor="rgba(0,0,0,0)",
-                font_color="#f8fafc"
+                font_color="#111827"
             )
             st.plotly_chart(fig, use_container_width=True)
 
@@ -296,8 +303,8 @@ if menu == "Dashboard Executivo":
             fig2.update_traces(textposition="outside")
             fig2.update_layout(
                 paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(255,255,255,0.03)",
-                font_color="#f8fafc"
+                plot_bgcolor="#ffffff",
+                font_color="#111827"
             )
             st.plotly_chart(fig2, use_container_width=True)
 
@@ -313,8 +320,8 @@ if menu == "Dashboard Executivo":
         fig3.update_traces(textposition="outside")
         fig3.update_layout(
             paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(255,255,255,0.03)",
-            font_color="#f8fafc"
+            plot_bgcolor="#ffffff",
+            font_color="#111827"
         )
         st.plotly_chart(fig3, use_container_width=True)
 
