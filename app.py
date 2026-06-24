@@ -20,6 +20,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+APP_VERSION = "v16.0 • filtros de edição"
+
 # =====================================================
 # CONEXÃO COM NEON
 # =====================================================
@@ -1254,6 +1256,40 @@ hr { border-color: var(--border); }
     font-weight:600;
 }
 
+.badge-version{
+    background:#F3F4F6;
+    color:#374151;
+    font-size:12px;
+}
+.sidebar-version{
+    margin-top:14px;
+    color:#6B7280;
+    font-size:11px;
+    font-weight:700;
+    letter-spacing:.04em;
+    text-transform:uppercase;
+}
+.version-chip{
+    display:inline-flex;
+    align-items:center;
+    padding:6px 10px;
+    border-radius:999px;
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    color:#6B7280;
+    font-size:11px;
+    font-weight:800;
+    box-shadow:0 4px 14px rgba(0,0,0,.04);
+}
+.edit-filter-box{
+    background:#FFFFFF;
+    border:1px solid #E5E7EB;
+    border-radius:20px;
+    padding:18px;
+    margin:6px 0 20px 0;
+    box-shadow:0 8px 24px rgba(0,0,0,.04);
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -1319,6 +1355,7 @@ st.sidebar.markdown(
     <div class="mini-title">Pendências</div>
     <div class="mini-value">{metricas['pendencias']}</div>
 </div>
+<div class="sidebar-version">Versão {APP_VERSION}</div>
 """,
     unsafe_allow_html=True,
 )
@@ -1338,6 +1375,7 @@ st.markdown(
         <div class="header-right">
             <div class="badge badge-online">Sistema Online</div>
             <div class="badge">Atualizado: {last_update}</div>
+            <div class="badge badge-version">{APP_VERSION}</div>
         </div>
     </div>
 </div>
@@ -1349,6 +1387,8 @@ st.markdown(
 # DASHBOARD EXECUTIVO
 # =====================================================
 if menu == "📊 Dashboard Executivo":
+    st.markdown(f'<div class="version-chip">Sistema {APP_VERSION}</div>', unsafe_allow_html=True)
+    st.write("")
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.markdown(kpi_card("Disponibilidade", f"{metricas['disponibilidade']}%", "base operacional", "success" if metricas["disponibilidade"] >= 98 else "warning" if metricas["disponibilidade"] >= 95 else "danger"), unsafe_allow_html=True)
     c2.markdown(kpi_card("Câmeras únicas", metricas["total"], "base por Nº/IP"), unsafe_allow_html=True)
@@ -1715,10 +1755,34 @@ elif menu == "✏️ Editar Câmera":
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
+        st.markdown("""
+        <div class="edit-filter-box">
+            <b>Busca rápida</b><br>
+            Use os filtros abaixo para localizar a câmera pelo gravador/NVR ou pelo nome da câmera antes de editar.
+        </div>
+        """, unsafe_allow_html=True)
+
+        df_edit = df_norm.copy()
+        filtro_col1, filtro_col2 = st.columns([1, 1.6])
+
+        nvr_options = sorted([safe_text(x) for x in df_edit["nvr"].dropna().unique().tolist() if safe_text(x)])
+        filtro_nvr = filtro_col1.selectbox("Filtrar por gravador / NVR", ["Todos"] + nvr_options)
+        filtro_nome = filtro_col2.text_input("Filtrar por nome da câmera", placeholder="Ex.: RUA 2, DOCA, CAM, ADIUM...")
+
+        if filtro_nvr != "Todos":
+            df_edit = df_edit[df_edit["nvr"].fillna("").astype(str).str.upper() == filtro_nvr.upper()]
+
+        if filtro_nome:
+            df_edit = df_edit[df_edit["nome_camera"].fillna("").astype(str).str.contains(filtro_nome, case=False, na=False)]
+
+        if df_edit.empty:
+            st.warning("Nenhuma câmera encontrada com os filtros informados.")
+            st.stop()
+
         camera_id = st.selectbox(
             "Selecione a câmera para editar",
-            df_norm["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
+            df_edit["id"].tolist(),
+            format_func=lambda x: f'{x} - {df_edit[df_edit["id"] == x]["nome_camera"].iloc[0]} • NVR: {df_edit[df_edit["id"] == x]["nvr"].iloc[0]}',
         )
         row = carregar_camera_por_id(camera_id)
         if row is None:
@@ -1942,3 +2006,4 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
