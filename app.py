@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v19.0 • retenção por NVR"
+APP_VERSION = "v20.0 • retenção por NVR"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -1973,7 +1973,12 @@ elif menu == "✏️ Editar Câmera":
         camera_id = st.selectbox(
             "Selecione a câmera para editar",
             df_edit["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_edit[df_edit["id"] == x]["nome_camera"].iloc[0]} • NVR: {df_edit[df_edit["id"] == x]["nvr"].iloc[0]}',
+            format_func=lambda x: (
+                f'{safe_text(df_edit[df_edit["id"] == x]["numero"].iloc[0])} | '
+                f'Canal {safe_text(df_edit[df_edit["id"] == x]["canal"].iloc[0])} | '
+                f'{safe_text(df_edit[df_edit["id"] == x]["nome_camera"].iloc[0])} | '
+                f'NVR: {safe_text(df_edit[df_edit["id"] == x]["nvr"].iloc[0])}'
+            ),
         )
         row = carregar_camera_por_id(camera_id)
         if row is None:
@@ -2063,7 +2068,12 @@ elif menu == "🔧 Manutenção":
         camera_id = st.selectbox(
             "Selecione a câmera",
             df_norm["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
+            format_func=lambda x: (
+                f'{safe_text(df_norm[df_norm["id"] == x]["numero"].iloc[0])} | '
+                f'Canal {safe_text(df_norm[df_norm["id"] == x]["canal"].iloc[0])} | '
+                f'{safe_text(df_norm[df_norm["id"] == x]["nome_camera"].iloc[0])} | '
+                f'NVR: {safe_text(df_norm[df_norm["id"] == x]["nvr"].iloc[0])}'
+            ),
         )
         st.markdown("#### Atualização rápida de status")
         colm1, colm2 = st.columns(2)
@@ -2217,7 +2227,12 @@ elif menu == "🗑️ Desativar / Excluir":
         camera_id = st.selectbox(
             "Selecione a câmera",
             df_norm["id"].tolist(),
-            format_func=lambda x: f'{x} - {df_norm[df_norm["id"] == x]["nome_camera"].iloc[0]}',
+            format_func=lambda x: (
+                f'{safe_text(df_norm[df_norm["id"] == x]["numero"].iloc[0])} | '
+                f'Canal {safe_text(df_norm[df_norm["id"] == x]["canal"].iloc[0])} | '
+                f'{safe_text(df_norm[df_norm["id"] == x]["nome_camera"].iloc[0])} | '
+                f'NVR: {safe_text(df_norm[df_norm["id"] == x]["nvr"].iloc[0])}'
+            ),
         )
         st.warning("Recomendação: use desativar para manter histórico. Excluir remove definitivamente o cadastro.")
         col1, col2, col3 = st.columns(3)
