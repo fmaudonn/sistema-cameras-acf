@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v17.0 • filtro NVR no Book Visual"
+APP_VERSION = "v18.0 • deduplicação e auditoria de duplicidades"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -703,6 +703,65 @@ def cameras_unicas_por_numero(df):
     return base
 
 
+
+def chave_duplicidade(row):
+    """Define a chave lógica de duplicidade da câmera.
+    Prioridade: Nº da câmera; se não houver, IP; se não houver, nome+NVR+canal.
+    """
+    try:
+        numero = pd.to_numeric(row.get("numero"), errors="coerce")
+        if pd.notna(numero) and int(numero) > 0:
+            return f"NUM-{int(numero)}"
+    except Exception:
+        pass
+
+    ip = safe_text(row.get("ip_camera"), "").strip()
+    if ip and ip != "Não informado":
+        return f"IP-{ip}"
+
+    nome = safe_text(row.get("nome_camera"), "").strip().upper()
+    nvr = safe_text(row.get("nvr"), "").strip().upper()
+    canal = safe_text(row.get("canal"), "").strip().upper()
+    return f"NOME-{nome}|NVR-{nvr}|CANAL-{canal}"
+
+
+def detectar_duplicidades(df):
+    """Retorna grupos de câmeras duplicadas, mantendo o critério do dashboard/book visual."""
+    if df.empty:
+        return pd.DataFrame(), pd.DataFrame()
+    base = normalizar_base(df).copy()
+    base["dup_key"] = base.apply(chave_duplicidade, axis=1)
+    grupos = (
+        base.groupby("dup_key", dropna=False)
+        .agg(
+            quantidade=("id", "count"),
+            manter_id=("id", "max"),
+            ids=("id", lambda x: ", ".join(map(str, sorted(x.tolist(), reverse=True)))),
+            numero=("numero", "first"),
+            operacao=("operacao", "first"),
+            nome_camera=("nome_camera", "first"),
+            ip_camera=("ip_camera", "first"),
+            nvr=("nvr", "first"),
+            canal=("canal", "first"),
+        )
+        .reset_index()
+    )
+    grupos = grupos[grupos["quantidade"] > 1].sort_values("quantidade", ascending=False)
+    detalhes = base[base["dup_key"].isin(grupos["dup_key"])].sort_values(["dup_key", "id"], ascending=[True, False])
+    return grupos, detalhes
+
+
+def remover_duplicidades(df):
+    """Remove registros duplicados mantendo o maior ID de cada chave lógica."""
+    grupos, detalhes = detectar_duplicidades(df)
+    if grupos.empty:
+        return 0
+    manter_ids = set(grupos["manter_id"].astype(int).tolist())
+    ids_duplicados = [int(x) for x in detalhes["id"].tolist() if int(x) not in manter_ids]
+    for camera_id in ids_duplicados:
+        executar_sql("DELETE FROM cameras WHERE id = :id", {"id": camera_id})
+    return len(ids_duplicados)
+
 def calcular_metricas(df):
     if df.empty:
         return {
@@ -1331,6 +1390,7 @@ menu = st.sidebar.radio(
         "📈 Expansão do Parque",
         "📄 Backup",
         "🧾 Histórico",
+        "🔍 Duplicidades",
         "🗑️ Desativar / Excluir",
     ],
     label_visibility="collapsed",
@@ -1572,13 +1632,15 @@ elif menu == "🖼️ Book Visual":
     )
 
     # Aumentamos o limite para permitir filtro por gravador em bases maiores.
-    fotos_df = carregar_cameras_com_foto(1000)
+    fotos_df = carregar_cameras_com_foto(3000)
 
     if fotos_df.empty:
         st.info("Nenhuma câmera disponível para exibição visual.")
     else:
-        book_df = normalizar_base(fotos_df.drop(columns=["foto_camera", "foto_nome"], errors="ignore"))
-        fotos_base = fotos_df.copy()
+        registros_antes = len(fotos_df)
+        fotos_base = cameras_unicas_por_numero(fotos_df).copy()
+        registros_ocultados = max(registros_antes - len(fotos_base), 0)
+        book_df = normalizar_base(fotos_base.drop(columns=["foto_camera", "foto_nome"], errors="ignore"))
 
         col_f1, col_f2, col_f3 = st.columns([1.2, 1.2, 0.8])
 
@@ -1603,8 +1665,8 @@ elif menu == "🖼️ Book Visual":
 
         if filtro_nvr_book != "Todos":
             mask_nvr = book_df["nvr"].astype(str).str.strip().str.lower() == filtro_nvr_book.strip().lower()
-            fotos_base = fotos_base[mask_nvr.values]
-            book_df = book_df[mask_nvr]
+            fotos_base = fotos_base.loc[mask_nvr]
+            book_df = book_df.loc[mask_nvr]
 
         if busca_book:
             busca = busca_book.lower().strip()
@@ -1616,14 +1678,15 @@ elif menu == "🖼️ Book Visual":
                 | book_df["rack"].str.lower().str.contains(busca, na=False)
                 | book_df["canal"].astype(str).str.lower().str.contains(busca, na=False)
             )
-            fotos_base = fotos_base[mask_busca.values]
-            book_df = book_df[mask_busca]
+            fotos_base = fotos_base.loc[mask_busca]
+            book_df = book_df.loc[mask_busca]
 
         if somente_com_foto:
             mask_foto = fotos_base["foto_camera"].notna()
             fotos_base = fotos_base[mask_foto]
 
-        st.caption(f"Exibindo {len(fotos_base)} câmera(s)" + (f" no gravador {filtro_nvr_book}" if filtro_nvr_book != "Todos" else ""))
+        dedupe_msg = f" • {registros_ocultados} duplicidade(s) ocultada(s)" if registros_ocultados > 0 else ""
+        st.caption(f"Exibindo {len(fotos_base)} câmera(s) única(s)" + (f" no gravador {filtro_nvr_book}" if filtro_nvr_book != "Todos" else "") + dedupe_msg)
 
         if fotos_base.empty:
             st.warning("Nenhuma câmera encontrada para os filtros selecionados.")
@@ -2024,6 +2087,43 @@ elif menu == "🧾 Histórico":
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
+# DUPLICIDADES
+# =====================================================
+elif menu == "🔍 Duplicidades":
+    st.markdown(
+        '<div class="panel"><div class="panel-title">Auditoria de Duplicidades</div>'
+        '<div class="panel-subtitle">Identifica câmeras repetidas por Nº, IP ou combinação Nome + NVR + Canal. O Book Visual e o Dashboard já usam a base única, mas esta tela permite limpar o banco.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    grupos_dup, detalhes_dup = detectar_duplicidades(df)
+
+    if grupos_dup.empty:
+        st.success("Nenhuma duplicidade encontrada na base atual.")
+    else:
+        st.warning(f"Foram encontrados {len(grupos_dup)} grupo(s) de duplicidade, totalizando {len(detalhes_dup)} registros envolvidos.")
+
+        st.markdown('<div class="panel"><div class="panel-title">Resumo das Duplicidades</div>', unsafe_allow_html=True)
+        resumo_cols = ["quantidade", "manter_id", "ids", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "canal"]
+        resumo_cols = [c for c in resumo_cols if c in grupos_dup.columns]
+        st.dataframe(grupos_dup[resumo_cols], use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="panel"><div class="panel-title">Registros Detalhados</div>', unsafe_allow_html=True)
+        detalhe_cols = ["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "canal", "status", "qualidade_gravacao", "atualizado_em", "criado_em", "dup_key"]
+        detalhe_cols = [c for c in detalhe_cols if c in detalhes_dup.columns]
+        st.dataframe(detalhes_dup[detalhe_cols], use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown('<div class="panel"><div class="panel-title">Limpeza Segura</div><div class="panel-subtitle">A ação abaixo mantém o registro mais recente de cada duplicidade e apaga os demais. Recomenda-se fazer backup antes.</div>', unsafe_allow_html=True)
+        confirmar = st.checkbox("Confirmo que fiz backup e desejo remover duplicidades mantendo o registro mais recente")
+        if st.button("Remover duplicidades", disabled=not confirmar):
+            removidos = remover_duplicidades(df)
+            st.success(f"Duplicidades removidas com sucesso. Registros apagados: {removidos}.")
+            st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
+
+# =====================================================
 # DESATIVAR / EXCLUIR
 # =====================================================
 elif menu == "🗑️ Desativar / Excluir":
@@ -2051,3 +2151,4 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
+
