@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v16.0 • filtros de edição"
+APP_VERSION = "v17.0 • filtro NVR no Book Visual"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -1565,45 +1565,90 @@ elif menu == "📷 Inventário Técnico":
 # BOOK VISUAL - NATIVO STREAMLIT PARA EVITAR HTML/CÓDIGO APARECENDO
 # =====================================================
 elif menu == "🖼️ Book Visual":
-    st.markdown('<div class="panel"><div class="camera-card-title">Book Visual de Câmeras</div><div class="camera-card-subtitle">Galeria operacional com imagens e principais informações técnicas.</div></div>', unsafe_allow_html=True)
-    fotos_df = carregar_cameras_com_foto(60)
+    st.markdown(
+        '<div class="panel"><div class="camera-card-title">Book Visual de Câmeras</div>'
+        '<div class="camera-card-subtitle">Galeria operacional com imagens e principais informações técnicas. Use o filtro por NVR para visualizar apenas as câmeras cadastradas em um gravador específico.</div></div>',
+        unsafe_allow_html=True,
+    )
+
+    # Aumentamos o limite para permitir filtro por gravador em bases maiores.
+    fotos_df = carregar_cameras_com_foto(1000)
+
     if fotos_df.empty:
         st.info("Nenhuma câmera disponível para exibição visual.")
     else:
-        busca_book = st.text_input("Filtrar book por câmera, operação, IP ou NVR")
         book_df = normalizar_base(fotos_df.drop(columns=["foto_camera", "foto_nome"], errors="ignore"))
         fotos_base = fotos_df.copy()
+
+        col_f1, col_f2, col_f3 = st.columns([1.2, 1.2, 0.8])
+
+        nvr_options = sorted([
+            n for n in book_df["nvr"].dropna().astype(str).str.strip().unique().tolist()
+            if n and n.lower() not in ["nan", "none", "não informado", "nao informado"]
+        ])
+
+        filtro_nvr_book = col_f1.selectbox(
+            "Filtrar por gravador/NVR",
+            ["Todos"] + nvr_options,
+            index=0,
+            help="Selecione um gravador para listar somente as câmeras cadastradas nele.",
+        )
+
+        busca_book = col_f2.text_input(
+            "Buscar câmera",
+            placeholder="Nome, operação, IP, rack ou canal",
+        )
+
+        somente_com_foto = col_f3.checkbox("Somente com foto", value=False)
+
+        if filtro_nvr_book != "Todos":
+            mask_nvr = book_df["nvr"].astype(str).str.strip().str.lower() == filtro_nvr_book.strip().lower()
+            fotos_base = fotos_base[mask_nvr.values]
+            book_df = book_df[mask_nvr]
+
         if busca_book:
-            busca = busca_book.lower()
-            mask = (
+            busca = busca_book.lower().strip()
+            mask_busca = (
                 book_df["nome_camera"].str.lower().str.contains(busca, na=False)
                 | book_df["operacao"].str.lower().str.contains(busca, na=False)
                 | book_df["ip_camera"].str.lower().str.contains(busca, na=False)
                 | book_df["nvr"].str.lower().str.contains(busca, na=False)
+                | book_df["rack"].str.lower().str.contains(busca, na=False)
+                | book_df["canal"].astype(str).str.lower().str.contains(busca, na=False)
             )
-            fotos_base = fotos_base[mask.values]
+            fotos_base = fotos_base[mask_busca.values]
+            book_df = book_df[mask_busca]
 
-        for start in range(0, len(fotos_base), 4):
-            cols = st.columns(4)
-            for col, (_, row) in zip(cols, fotos_base.iloc[start:start + 4].iterrows()):
-                with col:
-                    with st.container(border=True):
-                        img_bytes = bytes_to_image_bytes(row.get("foto_camera"))
-                        if img_bytes:
-                            st.image(img_bytes, use_container_width=True)
-                        else:
-                            st.markdown(
-                                """
-                                <div style="height:160px;border-radius:14px;background:linear-gradient(135deg,#F3F4F6,#FFFFFF);display:flex;align-items:center;justify-content:center;color:#9CA3AF;font-size:42px;border:1px solid #E5E7EB;">📷</div>
-                                """,
-                                unsafe_allow_html=True,
-                            )
-                        st.markdown(f"**{safe_text(row.get('nome_camera'))}**")
-                        st.caption(f"{safe_text(row.get('operacao'))} • Canal {safe_text(row.get('canal'))}")
-                        st.write(f"**IP:** {safe_text(row.get('ip_camera'))}")
-                        st.write(f"**NVR:** {safe_text(row.get('nvr'))}")
-                        st.write(f"**Rack:** {safe_text(row.get('rack'))}")
-                        st.markdown(f"<span class='status-pill {status_class(row.get('status'))}'>{esc(row.get('status'))}</span>", unsafe_allow_html=True)
+        if somente_com_foto:
+            mask_foto = fotos_base["foto_camera"].notna()
+            fotos_base = fotos_base[mask_foto]
+
+        st.caption(f"Exibindo {len(fotos_base)} câmera(s)" + (f" no gravador {filtro_nvr_book}" if filtro_nvr_book != "Todos" else ""))
+
+        if fotos_base.empty:
+            st.warning("Nenhuma câmera encontrada para os filtros selecionados.")
+        else:
+            for start in range(0, len(fotos_base), 4):
+                cols = st.columns(4)
+                for col, (_, row) in zip(cols, fotos_base.iloc[start:start + 4].iterrows()):
+                    with col:
+                        with st.container(border=True):
+                            img_bytes = bytes_to_image_bytes(row.get("foto_camera"))
+                            if img_bytes:
+                                st.image(img_bytes, use_container_width=True)
+                            else:
+                                st.markdown(
+                                    """
+                                    <div style="height:160px;border-radius:14px;background:linear-gradient(135deg,#F3F4F6,#FFFFFF);display:flex;align-items:center;justify-content:center;color:#9CA3AF;font-size:42px;border:1px solid #E5E7EB;">📷</div>
+                                    """,
+                                    unsafe_allow_html=True,
+                                )
+                            st.markdown(f"**{safe_text(row.get('nome_camera'))}**")
+                            st.caption(f"{safe_text(row.get('operacao'))} • Canal {safe_text(row.get('canal'))}")
+                            st.write(f"**IP:** {safe_text(row.get('ip_camera'))}")
+                            st.write(f"**NVR:** {safe_text(row.get('nvr'))}")
+                            st.write(f"**Rack:** {safe_text(row.get('rack'))}")
+                            st.markdown(f"<span class='status-pill {status_class(row.get('status'))}'>{esc(row.get('status'))}</span>", unsafe_allow_html=True)
 
 # =====================================================
 # CADASTRO
@@ -2006,4 +2051,3 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
