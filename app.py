@@ -169,6 +169,10 @@ def data_importacao(value):
 def montar_payload_importacao(row):
     status = texto_importacao(valor_excel(row, ["STATUS"]), "ATIVA").upper()
     qualidade = texto_importacao(valor_excel(row, ["QUALIDADE GRAVACAO", "QUALIDADE GRAVAÇÃO"]), "BOA").upper()
+    inicio_gravacao = data_importacao(valor_excel(row, ["INICIO GRAV", "INÍCIO GRAV", "INICIO GRAVACAO", "INÍCIO GRAVAÇÃO"]))
+    termino_gravacao = data_importacao(valor_excel(row, ["TERM GRAV", "TERMINO GRAV", "TÉRMINO GRAV", "TERMINO GRAVACAO", "TÉRMINO GRAVAÇÃO"]))
+    dias_planilha = inteiro_importacao(valor_excel(row, ["DIAS DE GRAVACAO", "DIAS DE GRAVAÇÃO", "DIAS GRAVACAO", "DIAS GRAVAÇÃO"]))
+    dias_calculados = calcular_dias_gravacao(inicio_gravacao, termino_gravacao) if inicio_gravacao and termino_gravacao else dias_planilha
 
     return {
         "numero": inteiro_importacao(valor_excel(row, ["N", "N°", "Nº", "NUMERO", "NÚMERO"])),
@@ -180,9 +184,9 @@ def montar_payload_importacao(row):
         "senha_camera": texto_importacao(valor_excel(row, ["SENHA", "SENHA CAMERA", "SENHA CÂMERA"])),
         "modelo": texto_importacao(valor_excel(row, ["MODELO"])),
         "marca": texto_importacao(valor_excel(row, ["MARCA CAM", "MARCA", "FABRICANTE"])),
-        "inicio_gravacao": data_importacao(valor_excel(row, ["INICIO GRAV", "INÍCIO GRAV", "INICIO GRAVACAO", "INÍCIO GRAVAÇÃO"])),
-        "termino_gravacao": data_importacao(valor_excel(row, ["TERM GRAV", "TERMINO GRAV", "TÉRMINO GRAV", "TERMINO GRAVACAO", "TÉRMINO GRAVAÇÃO"])),
-        "dias_gravacao": inteiro_importacao(valor_excel(row, ["DIAS DE GRAVACAO", "DIAS DE GRAVAÇÃO", "DIAS GRAVACAO", "DIAS GRAVAÇÃO"])),
+        "inicio_gravacao": inicio_gravacao,
+        "termino_gravacao": termino_gravacao,
+        "dias_gravacao": dias_calculados,
         "nvr": texto_importacao(valor_excel(row, ["NVR"])),
         "ip_nvr": texto_importacao(valor_excel(row, ["IP NVR"])),
         "login_nvr": texto_importacao(valor_excel(row, ["LOGIN NVR"])),
@@ -430,6 +434,20 @@ def safe_date_for_input(value):
         return pd.to_datetime(value).date()
     except Exception:
         return br_now().date()
+
+
+def calcular_dias_gravacao(inicio, termino):
+    """Calcula automaticamente a quantidade de dias gravados.
+
+    A regra usada é a diferença simples entre a data de término e a data de início.
+    Se a data final for anterior à inicial, retorna 0 para evitar valores negativos.
+    """
+    try:
+        inicio_dt = pd.to_datetime(inicio).date()
+        termino_dt = pd.to_datetime(termino).date()
+        return max((termino_dt - inicio_dt).days, 0)
+    except Exception:
+        return 0
 
 
 def acao_pendente_valida(value):
@@ -1365,15 +1383,16 @@ elif menu == "➕ Nova Câmera":
         login_camera = col7.text_input("Login câmera")
         senha_camera = col8.text_input("Senha câmera", type="password")
         serie_number = col9.text_input("Série Number")
-        col10, col11, col12 = st.columns(3)
+        col10, col11 = st.columns(2)
         modelo = col10.text_input("Modelo")
         marca = col11.text_input("Marca")
-        dias_gravacao = col12.number_input("Dias de gravação", min_value=0, step=1)
         st.markdown("##### Gravação e NVR")
-        col13, col14, col15 = st.columns(3)
+        col13, col14, col15, col16a = st.columns([1, 1, 0.8, 1])
         inicio_gravacao = col13.date_input("Início gravação")
         termino_gravacao = col14.date_input("Término gravação")
-        horario = col15.text_input("Horário")
+        dias_gravacao = calcular_dias_gravacao(inicio_gravacao, termino_gravacao)
+        col15.metric("Dias de gravação", f"{dias_gravacao} dias")
+        horario = col16a.text_input("Horário")
         col16, col17, col18 = st.columns(3)
         nvr = col16.text_input("NVR")
         ip_nvr = col17.text_input("IP NVR")
@@ -1509,15 +1528,16 @@ elif menu == "✏️ Editar Câmera":
                 login_camera = col7.text_input("Login câmera", value=safe_text(row.get("login_camera"), ""))
                 senha_camera = col8.text_input("Senha câmera", value=safe_text(row.get("senha_camera"), ""), type="password")
                 serie_number = col9.text_input("Série Number", value=safe_text(row.get("serie_number"), ""))
-                col10, col11, col12 = st.columns(3)
+                col10, col11 = st.columns(2)
                 modelo = col10.text_input("Modelo", value=safe_text(row.get("modelo"), ""))
                 marca = col11.text_input("Marca", value=safe_text(row.get("marca"), ""))
-                dias_gravacao = col12.number_input("Dias de gravação", min_value=0, step=1, value=safe_int(row.get("dias_gravacao")))
                 st.markdown("##### Gravação e NVR")
-                col13, col14, col15 = st.columns(3)
+                col13, col14, col15, col16a = st.columns([1, 1, 0.8, 1])
                 inicio_gravacao = col13.date_input("Início gravação", value=safe_date_for_input(row.get("inicio_gravacao")))
                 termino_gravacao = col14.date_input("Término gravação", value=safe_date_for_input(row.get("termino_gravacao")))
-                horario = col15.text_input("Horário", value=safe_text(row.get("horario"), ""))
+                dias_gravacao = calcular_dias_gravacao(inicio_gravacao, termino_gravacao)
+                col15.metric("Dias de gravação", f"{dias_gravacao} dias")
+                horario = col16a.text_input("Horário", value=safe_text(row.get("horario"), ""))
                 col16, col17, col18 = st.columns(3)
                 nvr = col16.text_input("NVR", value=safe_text(row.get("nvr"), ""))
                 ip_nvr = col17.text_input("IP NVR", value=safe_text(row.get("ip_nvr"), ""))
