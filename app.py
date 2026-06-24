@@ -1056,6 +1056,38 @@ hr { border-color: var(--border); }
     font-size: 18px;
 }
 
+
+.calc-field{
+    background:#ffffff;
+    border:1px solid #e5e7eb;
+    border-left:5px solid #FFCC00;
+    border-radius:14px;
+    height:74px;
+    padding:10px 14px;
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+    box-shadow:0 4px 14px rgba(17,24,39,.04);
+}
+.calc-label{
+    font-size:12px;
+    color:#6b7280;
+    font-weight:700;
+    margin-bottom:2px;
+}
+.calc-value{
+    font-size:21px;
+    line-height:1.1;
+    font-weight:800;
+    color:#D40511;
+}
+.calc-hint{
+    font-size:10px;
+    color:#9ca3af;
+    margin-top:2px;
+    font-weight:600;
+}
+
 </style>
 """,
     unsafe_allow_html=True,
@@ -1391,7 +1423,16 @@ elif menu == "➕ Nova Câmera":
         inicio_gravacao = col13.date_input("Início gravação")
         termino_gravacao = col14.date_input("Término gravação")
         dias_gravacao = calcular_dias_gravacao(inicio_gravacao, termino_gravacao)
-        col15.metric("Dias de gravação", f"{dias_gravacao} dias")
+        col15.markdown(
+            f"""
+            <div class="calc-field">
+                <div class="calc-label">📅 Dias de gravação</div>
+                <div class="calc-value">{dias_gravacao} dias</div>
+                <div class="calc-hint">calculado automaticamente</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         horario = col16a.text_input("Horário")
         col16, col17, col18 = st.columns(3)
         nvr = col16.text_input("NVR")
@@ -1536,7 +1577,16 @@ elif menu == "✏️ Editar Câmera":
                 inicio_gravacao = col13.date_input("Início gravação", value=safe_date_for_input(row.get("inicio_gravacao")))
                 termino_gravacao = col14.date_input("Término gravação", value=safe_date_for_input(row.get("termino_gravacao")))
                 dias_gravacao = calcular_dias_gravacao(inicio_gravacao, termino_gravacao)
-                col15.metric("Dias de gravação", f"{dias_gravacao} dias")
+                col15.markdown(
+            f"""
+            <div class="calc-field">
+                <div class="calc-label">📅 Dias de gravação</div>
+                <div class="calc-value">{dias_gravacao} dias</div>
+                <div class="calc-hint">calculado automaticamente</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
                 horario = col16a.text_input("Horário", value=safe_text(row.get("horario"), ""))
                 col16, col17, col18 = st.columns(3)
                 nvr = col16.text_input("NVR", value=safe_text(row.get("nvr"), ""))
