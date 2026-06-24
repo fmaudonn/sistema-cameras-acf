@@ -1,5 +1,6 @@
 import base64
 import html
+import textwrap
 from io import BytesIO
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -20,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v21.0 • menu lateral fixo"
+APP_VERSION = "v22.0 • PDF book + manutenção editável"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -514,6 +515,26 @@ def atualizar_status_manutencao(manutencao_id, status):
     )
 
 
+def excluir_manutencao(manutencao_id):
+    row = consultar_df(
+        """
+        SELECT m.id, m.camera_id, m.tipo, m.prioridade, m.status, c.nome_camera
+        FROM camera_maintenance m
+        LEFT JOIN cameras c ON c.id = m.camera_id
+        WHERE m.id = :id
+        """,
+        {"id": int(manutencao_id)},
+    )
+    if not row.empty:
+        info = row.iloc[0]
+        registrar_historico(
+            info.get("camera_id"),
+            "Exclusão de manutenção",
+            f"Manutenção #{manutencao_id} excluída: {safe_text(info.get('tipo'), '')} | {safe_text(info.get('prioridade'), '')} | {safe_text(info.get('status'), '')}",
+        )
+    executar_sql("DELETE FROM camera_maintenance WHERE id = :id", {"id": int(manutencao_id)})
+
+
 def carregar_manutencoes():
     try:
         return consultar_df(
@@ -820,6 +841,156 @@ def bytes_to_image_bytes(img_bytes):
     if start.startswith(b"<div") or start.startswith(b"<html") or start.startswith(b"import ") or start.startswith(b"st."):
         return None
     return img_bytes
+
+
+def _load_font(size=28, bold=False):
+    try:
+        base = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" if bold else "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        from PIL import ImageFont
+        return ImageFont.truetype(base, size)
+    except Exception:
+        from PIL import ImageFont
+        return ImageFont.load_default()
+
+
+def _draw_wrapped(draw, text, xy, font, fill, max_width, line_spacing=8, max_lines=None):
+    words = safe_text(text, "").split()
+    lines, line = [], ""
+    for word in words:
+        test = (line + " " + word).strip()
+        try:
+            width = draw.textbbox((0, 0), test, font=font)[2]
+        except Exception:
+            width = len(test) * 8
+        if width <= max_width or not line:
+            line = test
+        else:
+            lines.append(line)
+            line = word
+    if line:
+        lines.append(line)
+    if max_lines:
+        lines = lines[:max_lines]
+        if len(lines) == max_lines and len(words) > 0:
+            lines[-1] = lines[-1][: max(0, len(lines[-1]) - 3)] + "..."
+    x, y = xy
+    for item in lines:
+        draw.text((x, y), item, font=font, fill=fill)
+        y += font.size + line_spacing
+    return y
+
+
+def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
+    """Gera um PDF tipo revista, em tons escuros, com base no filtro atual do Book Visual.
+    Usa Pillow para evitar dependência adicional no Streamlit Cloud.
+    """
+    from PIL import Image, ImageDraw, ImageOps
+
+    rows = list(pdf_df.iterrows())
+    W, H = 1600, 1131  # A4 paisagem em proporção aproximada
+    dark = "#111315"
+    panel = "#1B1E22"
+    yellow = "#FFCC00"
+    red = "#D40511"
+    white = "#F8FAFC"
+    muted = "#AAB2BD"
+    green = "#0E9F6E"
+    amber = "#F59E0B"
+
+    font_title = _load_font(64, True)
+    font_h1 = _load_font(42, True)
+    font_h2 = _load_font(30, True)
+    font_body = _load_font(24, False)
+    font_small = _load_font(19, False)
+    font_badge = _load_font(20, True)
+
+    pages = []
+    now = br_now().strftime("%d/%m/%Y %H:%M")
+
+    # Capa
+    cover = Image.new("RGB", (W, H), dark)
+    d = ImageDraw.Draw(cover)
+    d.rectangle([0, 0, W, 120], fill=yellow)
+    d.rectangle([0, 0, 360, 120], fill=red)
+    d.text((70, 34), "DHL", font=font_h1, fill=yellow)
+    d.text((520, 270), "Security Camera", font=font_title, fill=white)
+    d.text((520, 350), "Command Book", font=font_title, fill=yellow)
+    d.text((520, 455), "ACF Extrema • Life Sciences • CFTV", font=font_h2, fill=muted)
+    d.rounded_rectangle([520, 560, 1080, 645], radius=24, outline=yellow, width=3)
+    d.text((555, 585), f"{len(rows)} câmeras no relatório", font=font_body, fill=white)
+    d.text((70, H - 120), "Confidential • Security Asset Inventory", font=font_small, fill=muted)
+    d.text((W - 420, H - 120), f"Gerado em {now}", font=font_small, fill=muted)
+    pages.append(cover)
+
+    def draw_card(page, row, x, y, w, h):
+        draw = ImageDraw.Draw(page)
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=26, fill=panel, outline="#31363D", width=2)
+        draw.rectangle([x, y, x + w, y + 12], fill=yellow)
+        draw.rectangle([x, y, x + 140, y + 12], fill=red)
+
+        img_area = [x + 32, y + 50, x + 440, y + h - 54]
+        img_bytes = bytes_to_image_bytes(row.get("foto_camera"))
+        if img_bytes:
+            try:
+                im = Image.open(BytesIO(img_bytes)).convert("RGB")
+                im.thumbnail((img_area[2] - img_area[0], img_area[3] - img_area[1]))
+                bg = Image.new("RGB", (img_area[2] - img_area[0], img_area[3] - img_area[1]), "#0B0D0F")
+                px = (bg.width - im.width) // 2
+                py = (bg.height - im.height) // 2
+                bg.paste(im, (px, py))
+                bg = ImageOps.expand(bg, border=2, fill="#3B4148")
+                page.paste(bg, (img_area[0], img_area[1]))
+            except Exception:
+                draw.rounded_rectangle(img_area, radius=20, fill="#0B0D0F", outline="#3B4148", width=2)
+                draw.text((img_area[0] + 160, img_area[1] + 180), "SEM FOTO", font=font_body, fill=muted)
+        else:
+            draw.rounded_rectangle(img_area, radius=20, fill="#0B0D0F", outline="#3B4148", width=2)
+            draw.text((img_area[0] + 150, img_area[1] + 180), "SEM FOTO", font=font_body, fill=muted)
+
+        tx = x + 475
+        ty = y + 54
+        _draw_wrapped(draw, safe_text(row.get("nome_camera")), (tx, ty), font_h2, white, w - 515, max_lines=2)
+        ty += 100
+        status = safe_text(row.get("status"), "ATIVA")
+        status_color = green if status.upper() == "ATIVA" else amber if "MANUT" in status.upper() else red
+        draw.rounded_rectangle([tx, ty, tx + 180, ty + 44], radius=18, fill=status_color)
+        draw.text((tx + 22, ty + 10), status.upper()[:14], font=font_badge, fill="white")
+        ty += 76
+        info = [
+            ("Operação", row.get("operacao")),
+            ("Canal", row.get("canal")),
+            ("IP", row.get("ip_camera")),
+            ("NVR", row.get("nvr")),
+            ("Rack", row.get("rack")),
+            ("Dias gravados", row.get("dias_gravacao")),
+            ("Qualidade", row.get("qualidade_gravacao")),
+        ]
+        for label, value in info:
+            draw.text((tx, ty), f"{label}:", font=font_small, fill=yellow)
+            _draw_wrapped(draw, safe_text(value), (tx + 175, ty), font_small, white, w - 705, max_lines=1)
+            ty += 40
+
+    # Páginas com 2 câmeras
+    for i in range(0, len(rows), 2):
+        page = Image.new("RGB", (W, H), dark)
+        d = ImageDraw.Draw(page)
+        d.rectangle([0, 0, W, 70], fill=yellow)
+        d.rectangle([0, 0, 240, 70], fill=red)
+        d.text((48, 20), "DHL", font=font_body, fill=yellow)
+        d.text((310, 19), "Security Camera Command Book", font=font_body, fill="#111315")
+        d.text((W - 260, 22), f"Página {len(pages) + 1}", font=font_small, fill="#111315")
+        subset = rows[i:i + 2]
+        if subset:
+            draw_card(page, subset[0][1], 60, 125, W - 120, 420)
+        if len(subset) > 1:
+            draw_card(page, subset[1][1], 60, 610, W - 120, 420)
+        d.text((60, H - 44), "Confidential • CFTV Asset Book", font=font_small, fill=muted)
+        pages.append(page)
+
+    out = BytesIO()
+    pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=150.0)
+    out.seek(0)
+    return out.getvalue()
 
 
 def configurar_figura(fig, height=360):
@@ -1791,6 +1962,22 @@ elif menu == "🖼️ Book Visual":
         dedupe_msg = f" • {registros_ocultados} duplicidade(s) ocultada(s)" if registros_ocultados > 0 else ""
         st.caption(f"Exibindo {len(fotos_base)} câmera(s) única(s)" + (f" no gravador {filtro_nvr_book}" if filtro_nvr_book != "Todos" else "") + dedupe_msg)
 
+        if not fotos_base.empty:
+            try:
+                pdf_bytes = gerar_pdf_book_cameras(
+                    fotos_base,
+                    subtitulo=(f"Book Visual • NVR {filtro_nvr_book}" if filtro_nvr_book != "Todos" else "Book Visual de Câmeras"),
+                )
+                st.download_button(
+                    "📄 Gerar PDF do Book Visual",
+                    data=pdf_bytes,
+                    file_name=f"book_visual_cameras_{br_now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    help="Gera um PDF tipo revista com as câmeras filtradas e suas respectivas imagens.",
+                )
+            except Exception as e:
+                st.warning(f"Não foi possível gerar o PDF do Book Visual: {e}")
+
         if fotos_base.empty:
             st.warning("Nenhuma câmera encontrada para os filtros selecionados.")
         else:
@@ -2130,6 +2317,25 @@ elif menu == "🔧 Manutenção":
         st.info("Nenhuma manutenção registrada.")
     else:
         st.dataframe(manut_df, use_container_width=True, hide_index=True)
+        st.markdown("##### Excluir registro de manutenção")
+        st.caption("Use apenas para corrigir lançamento indevido. A exclusão será registrada no histórico de alterações.")
+        manut_id = st.selectbox(
+            "Selecione o registro de manutenção",
+            manut_df["id"].tolist(),
+            format_func=lambda x: (
+                f"#{x} • "
+                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'nome_camera'].iloc[0], '')} • "
+                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'tipo'].iloc[0], '')} • "
+                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'status'].iloc[0], '')}"
+            ),
+            key="select_excluir_manutencao",
+        )
+        col_del1, col_del2 = st.columns([0.35, 0.65])
+        confirmar_exclusao_m = col_del1.checkbox("Confirmar exclusão", key="confirmar_exclusao_manutencao")
+        if col_del2.button("Excluir manutenção selecionada", type="secondary", disabled=not confirmar_exclusao_m):
+            excluir_manutencao(manut_id)
+            st.success("Registro de manutenção excluído com sucesso.")
+            st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
@@ -2269,4 +2475,3 @@ elif menu == "🗑️ Desativar / Excluir":
             st.error("Câmera excluída definitivamente.")
             st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
-
