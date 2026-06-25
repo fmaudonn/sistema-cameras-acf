@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v26.0 • sistema sem geração de PDF"
+APP_VERSION = "v27.0 • manutenção com filtro NVR e finalização"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -503,6 +503,22 @@ def registrar_manutencao(camera_id, tipo, prioridade, descricao, responsavel, st
 
 
 def atualizar_status_manutencao(manutencao_id, status):
+    row = consultar_df(
+        """
+        SELECT m.id, m.camera_id, m.tipo, m.prioridade, m.status, c.nome_camera
+        FROM camera_maintenance m
+        LEFT JOIN cameras c ON c.id = m.camera_id
+        WHERE m.id = :id
+        """,
+        {"id": int(manutencao_id)},
+    )
+    status_anterior = ""
+    camera_id = None
+    if not row.empty:
+        info = row.iloc[0]
+        status_anterior = safe_text(info.get("status"), "")
+        camera_id = info.get("camera_id")
+
     executar_sql(
         """
         UPDATE camera_maintenance
@@ -510,6 +526,11 @@ def atualizar_status_manutencao(manutencao_id, status):
         WHERE id = :id
         """,
         {"id": int(manutencao_id), "status": status},
+    )
+    registrar_historico(
+        camera_id,
+        "Atualização de manutenção",
+        f"Manutenção #{manutencao_id}: {status_anterior} → {status}",
     )
 
 
@@ -537,7 +558,7 @@ def carregar_manutencoes():
     try:
         return consultar_df(
             """
-            SELECT m.id, m.camera_id, c.numero, c.operacao, c.nome_camera,
+            SELECT m.id, m.camera_id, c.numero, c.operacao, c.nome_camera, c.nvr, c.canal,
                    m.tipo, m.prioridade, m.descricao, m.responsavel, m.status, m.prazo,
                    m.criado_em, m.atualizado_em
             FROM camera_maintenance m
@@ -2102,47 +2123,72 @@ elif menu == "✏️ Editar Câmera":
 # MANUTENÇÃO / STATUS
 # =====================================================
 elif menu == "🔧 Manutenção":
-    st.markdown('<div class="form-section"><h3>Gestão de Manutenção</h3><p>Atualize status operacional e registre tratativas técnicas.</p>', unsafe_allow_html=True)
+    st.markdown('<div class="form-section"><h3>Gestão de Manutenção</h3><p>Atualize status operacional, filtre por gravador e acompanhe a conclusão das tratativas técnicas.</p>', unsafe_allow_html=True)
     if df_norm.empty:
         st.warning("Nenhuma câmera cadastrada.")
     else:
-        camera_id = st.selectbox(
-            "Selecione a câmera",
-            df_norm["id"].tolist(),
-            format_func=lambda x: (
-                f'{safe_text(df_norm[df_norm["id"] == x]["numero"].iloc[0])} | '
-                f'Canal {safe_text(df_norm[df_norm["id"] == x]["canal"].iloc[0])} | '
-                f'{safe_text(df_norm[df_norm["id"] == x]["nome_camera"].iloc[0])} | '
-                f'NVR: {safe_text(df_norm[df_norm["id"] == x]["nvr"].iloc[0])}'
-            ),
-        )
-        st.markdown("#### Atualização rápida de status")
-        colm1, colm2 = st.columns(2)
-        status = colm1.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
-        qualidade = colm2.selectbox("Qualidade", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
-        observacao = st.text_area("Observação")
-        acao = st.text_area("Ação necessária")
-        if st.button("Atualizar status"):
-            atualizar_status(camera_id, status, qualidade, observacao, acao)
-            st.success("Status atualizado.")
-            st.rerun()
+        st.markdown("#### Seleção da câmera")
+        filtro_col1, filtro_col2 = st.columns([0.35, 0.65])
+        nvr_options_m = sorted([x for x in df_norm["nvr"].dropna().unique().tolist() if safe_text(x, "") and safe_text(x, "") != "Não informado"])
+        filtro_nvr_manut = filtro_col1.selectbox("Filtrar por gravador/NVR", ["Todos"] + nvr_options_m, key="manut_filtro_nvr_camera")
+        busca_camera_manut = filtro_col2.text_input("Buscar câmera", placeholder="Digite nome, número, canal, IP, operação ou rack", key="manut_busca_camera")
 
-        st.divider()
-        st.markdown("#### Registrar manutenção / chamado")
-        with st.form("form_manutencao"):
-            c1, c2, c3 = st.columns(3)
-            tipo_m = c1.selectbox("Tipo", ["Preventiva", "Corretiva", "Substituição", "Ajuste de imagem", "NVR/Gravação", "Outro"])
-            prioridade_m = c2.selectbox("Prioridade", ["Baixa", "Média", "Alta", "Crítica"])
-            status_m = c3.selectbox("Status do chamado", ["ABERTO", "EM ANDAMENTO", "CONCLUÍDO", "CANCELADO"])
-            descricao_m = st.text_area("Descrição da tratativa")
-            c4, c5 = st.columns(2)
-            responsavel_m = c4.text_input("Responsável")
-            prazo_m = c5.date_input("Prazo", value=br_now().date())
-            salvar_m = st.form_submit_button("Registrar manutenção")
-            if salvar_m:
-                registrar_manutencao(camera_id, tipo_m, prioridade_m, descricao_m, responsavel_m, status_m, prazo_m)
-                st.success("Manutenção registrada.")
+        df_manut_select = df_norm.copy()
+        if filtro_nvr_manut != "Todos":
+            df_manut_select = df_manut_select[df_manut_select["nvr"] == filtro_nvr_manut]
+        if busca_camera_manut:
+            busca = busca_camera_manut.strip()
+            df_manut_select = df_manut_select[
+                df_manut_select["nome_camera"].str.contains(busca, case=False, na=False)
+                | df_manut_select["operacao"].str.contains(busca, case=False, na=False)
+                | df_manut_select["ip_camera"].str.contains(busca, case=False, na=False)
+                | df_manut_select["rack"].str.contains(busca, case=False, na=False)
+                | df_manut_select["canal"].astype(str).str.contains(busca, case=False, na=False)
+                | df_manut_select["numero"].astype(str).str.contains(busca, case=False, na=False)
+            ]
+
+        st.caption(f"{len(df_manut_select)} câmera(s) encontrada(s) para o filtro aplicado.")
+        if df_manut_select.empty:
+            st.warning("Nenhuma câmera encontrada com os filtros selecionados.")
+        else:
+            camera_id = st.selectbox(
+                "Selecione a câmera",
+                df_manut_select["id"].tolist(),
+                format_func=lambda x: (
+                    f'{safe_text(df_manut_select[df_manut_select["id"] == x]["numero"].iloc[0])} | '
+                    f'Canal {safe_text(df_manut_select[df_manut_select["id"] == x]["canal"].iloc[0])} | '
+                    f'{safe_text(df_manut_select[df_manut_select["id"] == x]["nome_camera"].iloc[0])} | '
+                    f'NVR: {safe_text(df_manut_select[df_manut_select["id"] == x]["nvr"].iloc[0])}'
+                ),
+                key="manut_camera_select",
+            )
+            st.markdown("#### Atualização rápida de status")
+            colm1, colm2 = st.columns(2)
+            status = colm1.selectbox("Novo status", ["ATIVA", "INATIVA", "MANUTENÇÃO", "FALHA", "SEM GRAVAÇÃO"])
+            qualidade = colm2.selectbox("Qualidade", ["BOA", "REGULAR", "RUIM", "SEM IMAGEM", "SEM GRAVAÇÃO"])
+            observacao = st.text_area("Observação")
+            acao = st.text_area("Ação necessária")
+            if st.button("Atualizar status"):
+                atualizar_status(camera_id, status, qualidade, observacao, acao)
+                st.success("Status atualizado.")
                 st.rerun()
+
+            st.divider()
+            st.markdown("#### Registrar manutenção / chamado")
+            with st.form("form_manutencao"):
+                c1, c2, c3 = st.columns(3)
+                tipo_m = c1.selectbox("Tipo", ["Preventiva", "Corretiva", "Substituição", "Ajuste de imagem", "NVR/Gravação", "Outro"])
+                prioridade_m = c2.selectbox("Prioridade", ["Baixa", "Média", "Alta", "Crítica"])
+                status_m = c3.selectbox("Status do chamado", ["ABERTO", "EM ANDAMENTO", "CONCLUÍDO", "CANCELADO"])
+                descricao_m = st.text_area("Descrição da tratativa")
+                c4, c5 = st.columns(2)
+                responsavel_m = c4.text_input("Responsável")
+                prazo_m = c5.date_input("Prazo", value=br_now().date())
+                salvar_m = st.form_submit_button("Registrar manutenção")
+                if salvar_m:
+                    registrar_manutencao(camera_id, tipo_m, prioridade_m, descricao_m, responsavel_m, status_m, prazo_m)
+                    st.success("Manutenção registrada.")
+                    st.rerun()
 
     manut_df = carregar_manutencoes()
     st.divider()
@@ -2150,26 +2196,86 @@ elif menu == "🔧 Manutenção":
     if manut_df.empty:
         st.info("Nenhuma manutenção registrada.")
     else:
-        st.dataframe(manut_df, use_container_width=True, hide_index=True)
-        st.markdown("##### Excluir registro de manutenção")
-        st.caption("Use apenas para corrigir lançamento indevido. A exclusão será registrada no histórico de alterações.")
-        manut_id = st.selectbox(
-            "Selecione o registro de manutenção",
-            manut_df["id"].tolist(),
-            format_func=lambda x: (
-                f"#{x} • "
-                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'nome_camera'].iloc[0], '')} • "
-                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'tipo'].iloc[0], '')} • "
-                f"{safe_text(manut_df.loc[manut_df['id'] == x, 'status'].iloc[0], '')}"
-            ),
-            key="select_excluir_manutencao",
-        )
-        col_del1, col_del2 = st.columns([0.35, 0.65])
-        confirmar_exclusao_m = col_del1.checkbox("Confirmar exclusão", key="confirmar_exclusao_manutencao")
-        if col_del2.button("Excluir manutenção selecionada", type="secondary", disabled=not confirmar_exclusao_m):
-            excluir_manutencao(manut_id)
-            st.success("Registro de manutenção excluído com sucesso.")
-            st.rerun()
+        manut_view = manut_df.copy()
+        hf1, hf2, hf3, hf4 = st.columns([0.24, 0.24, 0.24, 0.28])
+        nvr_hist_options = sorted([x for x in manut_view["nvr"].dropna().unique().tolist() if safe_text(x, "") and safe_text(x, "") != "Não informado"]) if "nvr" in manut_view.columns else []
+        filtro_nvr_hist = hf1.selectbox("Filtrar histórico por NVR", ["Todos"] + nvr_hist_options, key="manut_hist_filtro_nvr")
+        filtro_status_hist = hf2.selectbox("Status do chamado", ["Todos", "ABERTO", "EM ANDAMENTO", "CONCLUÍDO", "CANCELADO"], key="manut_hist_filtro_status")
+        filtro_prioridade_hist = hf3.selectbox("Prioridade", ["Todas", "Baixa", "Média", "Alta", "Crítica"], key="manut_hist_filtro_prioridade")
+        busca_hist = hf4.text_input("Buscar no histórico", placeholder="Câmera, responsável, descrição...", key="manut_hist_busca")
+
+        if filtro_nvr_hist != "Todos" and "nvr" in manut_view.columns:
+            manut_view = manut_view[manut_view["nvr"] == filtro_nvr_hist]
+        if filtro_status_hist != "Todos":
+            manut_view = manut_view[manut_view["status"] == filtro_status_hist]
+        if filtro_prioridade_hist != "Todas":
+            manut_view = manut_view[manut_view["prioridade"] == filtro_prioridade_hist]
+        if busca_hist:
+            busca = busca_hist.strip()
+            manut_view = manut_view[
+                manut_view["nome_camera"].astype(str).str.contains(busca, case=False, na=False)
+                | manut_view["operacao"].astype(str).str.contains(busca, case=False, na=False)
+                | manut_view["responsavel"].astype(str).str.contains(busca, case=False, na=False)
+                | manut_view["descricao"].astype(str).str.contains(busca, case=False, na=False)
+                | manut_view["nvr"].astype(str).str.contains(busca, case=False, na=False)
+                | manut_view["canal"].astype(str).str.contains(busca, case=False, na=False)
+            ]
+
+        abertos_count = int((manut_view["status"].astype(str).str.upper().isin(["ABERTO", "EM ANDAMENTO"])).sum()) if not manut_view.empty else 0
+        concluidos_count = int((manut_view["status"].astype(str).str.upper() == "CONCLUÍDO").sum()) if not manut_view.empty else 0
+        st.caption(f"Exibindo {len(manut_view)} manutenção(ões). Em aberto/andamento: {abertos_count} • Concluídas: {concluidos_count}")
+
+        if manut_view.empty:
+            st.info("Nenhuma manutenção encontrada com os filtros selecionados.")
+        else:
+            st.dataframe(manut_view, use_container_width=True, hide_index=True)
+
+            st.markdown("##### Finalizar ou atualizar chamado")
+            st.caption("Use esta área para encerrar o chamado após a conclusão do serviço ou alterar o status da tratativa.")
+            manut_id_status = st.selectbox(
+                "Selecione o chamado",
+                manut_view["id"].tolist(),
+                format_func=lambda x: (
+                    f"#{x} • "
+                    f"{safe_text(manut_view.loc[manut_view['id'] == x, 'nome_camera'].iloc[0], '')} • "
+                    f"NVR: {safe_text(manut_view.loc[manut_view['id'] == x, 'nvr'].iloc[0], '')} • "
+                    f"{safe_text(manut_view.loc[manut_view['id'] == x, 'status'].iloc[0], '')}"
+                ),
+                key="select_status_manutencao",
+            )
+            col_st1, col_st2, col_st3 = st.columns([0.32, 0.34, 0.34])
+            status_atual_m = safe_text(manut_view.loc[manut_view["id"] == manut_id_status, "status"].iloc[0], "ABERTO")
+            opcoes_status_m = ["ABERTO", "EM ANDAMENTO", "CONCLUÍDO", "CANCELADO"]
+            idx_status_m = opcoes_status_m.index(status_atual_m) if status_atual_m in opcoes_status_m else 0
+            novo_status_m = col_st1.selectbox("Novo status do chamado", opcoes_status_m, index=idx_status_m, key="novo_status_manutencao")
+            if col_st2.button("Salvar status do chamado", type="primary"):
+                atualizar_status_manutencao(manut_id_status, novo_status_m)
+                st.success("Status do chamado atualizado.")
+                st.rerun()
+            if col_st3.button("Finalizar como CONCLUÍDO", type="secondary"):
+                atualizar_status_manutencao(manut_id_status, "CONCLUÍDO")
+                st.success("Chamado finalizado como concluído.")
+                st.rerun()
+
+            st.markdown("##### Excluir registro de manutenção")
+            st.caption("Use apenas para corrigir lançamento indevido. A exclusão será registrada no histórico de alterações.")
+            manut_id = st.selectbox(
+                "Selecione o registro de manutenção",
+                manut_view["id"].tolist(),
+                format_func=lambda x: (
+                    f"#{x} • "
+                    f"{safe_text(manut_view.loc[manut_view['id'] == x, 'nome_camera'].iloc[0], '')} • "
+                    f"{safe_text(manut_view.loc[manut_view['id'] == x, 'tipo'].iloc[0], '')} • "
+                    f"{safe_text(manut_view.loc[manut_view['id'] == x, 'status'].iloc[0], '')}"
+                ),
+                key="select_excluir_manutencao",
+            )
+            col_del1, col_del2 = st.columns([0.35, 0.65])
+            confirmar_exclusao_m = col_del1.checkbox("Confirmar exclusão", key="confirmar_exclusao_manutencao")
+            if col_del2.button("Excluir manutenção selecionada", type="secondary", disabled=not confirmar_exclusao_m):
+                excluir_manutencao(manut_id)
+                st.success("Registro de manutenção excluído com sucesso.")
+                st.rerun()
     st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
