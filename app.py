@@ -21,7 +21,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v24.0 • PDF revista A4 claro"
+APP_VERSION = "v25.0 • PDF revista editorial legível"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -881,32 +881,30 @@ def _draw_wrapped(draw, text, xy, font, fill, max_width, line_spacing=8, max_lin
 
 
 
+
 def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
-    """Gera uma revista PDF A4 retrato, clara, legível e com identidade DHL.
+    """Gera uma revista PDF A4 retrato em estilo corporativo DHL, clara e legível.
 
-    Estrutura:
-    - Capa editorial em A4 retrato.
-    - Resumo executivo com indicadores e ranking de NVRs/operações.
-    - Índice em formato de revista.
-    - Uma página por câmera com imagem grande e ficha técnica legível.
-
-    Observação: usa Pillow para manter compatibilidade simples no Streamlit Cloud.
+    Melhorias v25:
+    - fontes maiores;
+    - capa mais editorial;
+    - resumo executivo mais visual;
+    - índice com melhor aproveitamento de página;
+    - página individual com imagem grande e ficha técnica legível;
+    - rodapé e numeração padronizados.
     """
-    from PIL import Image, ImageDraw, ImageFilter
+    from PIL import Image, ImageDraw
 
-    df_pdf = pdf_df.copy()
-    if df_pdf.empty:
-        df_pdf = pd.DataFrame()
-
+    df_pdf = pdf_df.copy() if pdf_df is not None else pd.DataFrame()
     rows = list(df_pdf.iterrows())
 
-    # A4 retrato em boa resolução. Mantém proporção A4 e fontes legíveis.
+    # A4 retrato em 150 dpi aproximado. Mantém boa qualidade e fonte legível.
     W, H = 1240, 1754
-    M = 58
+    M = 68
 
     dhl_yellow = "#FFCC00"
     dhl_red = "#D40511"
-    ink = "#111827"
+    ink = "#1F2937"
     slate = "#374151"
     muted = "#6B7280"
     light = "#F8FAFC"
@@ -915,19 +913,26 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
     green = "#059669"
     orange = "#F59E0B"
     danger = "#DC2626"
+    soft_yellow = "#FFF3BF"
+    soft_green = "#DCFCE7"
+    soft_red = "#FEE2E2"
 
-    font_logo = _load_font(58, True)
-    font_cover = _load_font(58, True)
-    font_title = _load_font(40, True)
-    font_h1 = _load_font(32, True)
-    font_h2 = _load_font(25, True)
-    font_body = _load_font(22, False)
-    font_body_bold = _load_font(22, True)
-    font_small = _load_font(18, False)
-    font_small_bold = _load_font(18, True)
-    font_micro = _load_font(14, False)
-    font_badge = _load_font(17, True)
-    font_number = _load_font(42, True)
+    # Fontes mais fortes e maiores para leitura em PDF.
+    font_logo = _load_font(70, True)
+    font_cover = _load_font(70, True)
+    font_cover_sub = _load_font(34, True)
+    font_title = _load_font(44, True)
+    font_h1 = _load_font(38, True)
+    font_h2 = _load_font(30, True)
+    font_body = _load_font(26, False)
+    font_body_bold = _load_font(26, True)
+    font_small = _load_font(22, False)
+    font_small_bold = _load_font(22, True)
+    font_micro = _load_font(18, False)
+    font_micro_bold = _load_font(18, True)
+    font_badge = _load_font(20, True)
+    font_metric = _load_font(52, True)
+    font_page_no = _load_font(20, True)
 
     now = br_now().strftime("%d/%m/%Y")
     now_full = br_now().strftime("%d/%m/%Y %H:%M")
@@ -966,27 +971,37 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
         canvas.paste(im2, (x, y))
         return canvas
 
+    def draw_footer(draw, page_no):
+        draw.line([M, H - 92, W - M, H - 92], fill=border, width=2)
+        draw.text((M, H - 66), "ACF EXTREMA", font=font_micro, fill=slate)
+        footer_title = "BOOK VISUAL DE CÂMERAS"
+        try:
+            tw = draw.textbbox((0, 0), footer_title, font=font_micro)[2]
+        except Exception:
+            tw = 250
+        draw.text(((W - tw) // 2, H - 66), footer_title, font=font_micro, fill=slate)
+        draw.rounded_rectangle([W - 132, H - 82, W - 68, H - 28], radius=4, fill=dhl_yellow)
+        draw.text((W - 108, H - 68), f"{page_no:02d}", font=font_page_no, fill=dhl_red)
+
     def draw_page_frame(draw, page_no=None):
-        # moldura sutil de revista
-        draw.rectangle([0, 0, W, H], fill="#FFFFFF")
-        draw.rectangle([0, 0, W, 14], fill=dhl_yellow)
-        draw.rectangle([0, 0, int(W * 0.42), 14], fill=dhl_red)
-        draw.rectangle([0, H - 16, W, H], fill=dhl_yellow)
-        draw.rectangle([0, H - 16, int(W * 0.28), H], fill=dhl_red)
-        draw.rectangle([M, M, W - M, H - M], outline="#D1D5DB", width=2)
+        draw.rectangle([0, 0, W, H], fill=white)
+        # Tarja institucional superior e inferior.
+        draw.rectangle([0, 0, W, 18], fill=dhl_yellow)
+        draw.rectangle([0, 0, int(W * 0.42), 18], fill=dhl_red)
+        draw.rectangle([0, H - 20, W, H], fill=dhl_yellow)
+        draw.rectangle([0, H - 20, int(W * 0.28), H], fill=dhl_red)
+        draw.rectangle([M, M, W - M, H - M], outline="#D7DCE2", width=2)
         if page_no is not None:
-            draw.rounded_rectangle([W - 126, H - 78, W - 58, H - 32], radius=4, fill=dhl_yellow)
-            draw.text((W - 103, H - 67), f"{page_no:02d}", font=font_small_bold, fill=dhl_red)
-            draw.text((M + 6, H - 62), "ACF EXTREMA", font=font_micro, fill=slate)
-            draw.text((W // 2 - 105, H - 62), "BOOK VISUAL DE CÂMERAS", font=font_micro, fill=slate)
+            draw_footer(draw, page_no)
 
     def draw_dhl_logo_text(draw, x, y, large=True):
-        draw.text((x, y), "DHL", font=font_logo if large else font_h2, fill=dhl_red)
-        # linhas simulando assinatura DHL
-        lw = 118 if large else 62
-        ly = y + (44 if large else 20)
+        font = font_logo if large else font_h2
+        draw.text((x, y), "DHL", font=font, fill=dhl_red)
+        offset = 150 if large else 78
+        lw = 128 if large else 72
+        ly = y + (52 if large else 25)
         for i in range(3):
-            draw.line([x + (120 if large else 55), ly + i * 7, x + (120 if large else 55) + lw, ly + i * 7], fill=dhl_red, width=4 if large else 2)
+            draw.line([x + offset, ly + i * 8, x + offset + lw, ly + i * 8], fill=dhl_red, width=5 if large else 3)
 
     def status_color(status):
         s = safe_text(status).upper()
@@ -998,147 +1013,152 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
             return danger
         return muted
 
-    def draw_badge(draw, x, y, text, color, pad_x=16):
-        label = safe_text(text, "N/I").upper()[:24]
+    def draw_badge(draw, x, y, text, color, pad_x=18):
+        label = safe_text(text, "N/I").upper()[:26]
         try:
             tw = draw.textbbox((0, 0), label, font=font_badge)[2]
         except Exception:
-            tw = len(label) * 9
+            tw = len(label) * 12
         w = tw + pad_x * 2
-        draw.rounded_rectangle([x, y, x + w, y + 36], radius=16, fill=color)
-        draw.text((x + pad_x, y + 8), label, font=font_badge, fill=white)
+        draw.rounded_rectangle([x, y, x + w, y + 42], radius=21, fill=color)
+        draw.text((x + pad_x, y + 10), label, font=font_badge, fill=white)
         return w
 
-    def metric_card(draw, x, y, w, h, label, value, accent=dhl_red, icon=None):
-        draw.rounded_rectangle([x, y, x + w, y + h], radius=14, fill=white, outline=border, width=2)
-        draw.ellipse([x + 24, y + 22, x + 78, y + 76], fill="#FFF3BF")
-        if icon:
-            draw.text((x + 38, y + 35), icon, font=font_body_bold, fill=accent)
-        draw.text((x + 96, y + 25), str(value), font=font_h1, fill=accent)
-        _draw_wrapped(draw, safe_text(label).upper(), (x + 96, y + 66), font_micro, ink, w - 110, max_lines=2)
+    def metric_card(draw, x, y, w, h, label, value, accent=dhl_red, icon="▣", soft_fill=soft_yellow):
+        draw.rounded_rectangle([x, y, x + w, y + h], radius=18, fill=white, outline=border, width=2)
+        draw.ellipse([x + 28, y + 28, x + 100, y + 100], fill=soft_fill)
+        draw.text((x + 52, y + 48), icon, font=font_small_bold, fill=accent)
+        draw.text((x + 126, y + 25), str(value), font=font_metric, fill=accent)
+        _draw_wrapped(draw, safe_text(label).upper(), (x + 126, y + 86), font_micro_bold, ink, w - 146, max_lines=2, line_spacing=3)
 
-    def info_row(draw, x, y, label, value, w=490):
+    def info_row(draw, x, y, label, value, w=500):
+        # Linha de ficha técnica maior e mais legível.
         draw.text((x, y), safe_text(label), font=font_small_bold, fill=muted)
-        _draw_wrapped(draw, safe_text(value, "Não informado"), (x + 170, y), font_small, ink, w - 180, max_lines=2, line_spacing=3)
-        draw.line([x, y + 32, x + w, y + 32], fill="#EEF2F7", width=1)
+        _draw_wrapped(draw, safe_text(value, "Não informado"), (x + 190, y), font_small_bold, ink, w - 200, max_lines=2, line_spacing=2)
+        draw.line([x, y + 40, x + w, y + 40], fill="#EEF2F7", width=2)
 
     def placeholder_camera(draw, box):
         x1, y1, x2, y2 = box
-        draw.rounded_rectangle(box, radius=16, fill="#F8FAFC", outline=border, width=2)
+        draw.rounded_rectangle(box, radius=18, fill="#F8FAFC", outline=border, width=2)
         cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
-        draw.ellipse([cx - 54, cy - 54, cx + 54, cy + 54], outline="#CBD5E1", width=6)
-        draw.rectangle([cx - 76, cy - 16, cx + 76, cy + 32], fill="#CBD5E1")
-        draw.ellipse([cx - 24, cy - 24, cx + 24, cy + 24], fill="#94A3B8")
-        draw.ellipse([cx - 10, cy - 10, cx + 10, cy + 10], fill="#F8FAFC")
-        draw.text((cx - 105, cy + 70), "Imagem não cadastrada", font=font_small_bold, fill=muted)
+        draw.ellipse([cx - 62, cy - 62, cx + 62, cy + 62], outline="#CBD5E1", width=7)
+        draw.rectangle([cx - 84, cy - 20, cx + 84, cy + 36], fill="#CBD5E1")
+        draw.ellipse([cx - 28, cy - 28, cx + 28, cy + 28], fill="#94A3B8")
+        draw.ellipse([cx - 12, cy - 12, cx + 12, cy + 12], fill="#F8FAFC")
+        draw.text((cx - 130, cy + 80), "Imagem não cadastrada", font=font_small_bold, fill=muted)
+
+    # Métricas gerais
+    total = len(rows)
+    active = sum(1 for _, r in rows if safe_text(r.get("status")).upper() == "ATIVA")
+    inactive = sum(1 for _, r in rows if safe_text(r.get("status")).upper() == "INATIVA")
+    ops = sorted({safe_text(r.get("operacao"), "Não informado") for _, r in rows})
+    nvrs = {}
+    for _, r in rows:
+        nvr = safe_text(r.get("nvr"), "Não informado")
+        nvrs[nvr] = nvrs.get(nvr, 0) + 1
+    invalid_action_values = {"", "não informado", "nao informado", "n/a", "na", "ok", "nenhuma", "sem ação", "sem acao", "-"}
+    pending = sum(1 for _, r in rows if safe_text(r.get("acao_necessaria")).strip().lower() not in invalid_action_values)
 
     # ---------------- Capa ----------------
     cover = Image.new("RGB", (W, H), "white")
     d = ImageDraw.Draw(cover)
-    draw_page_frame(d, None)
+    # Fundo base
+    d.rectangle([0, 0, W, H], fill=white)
+    d.rectangle([0, 0, W, 405], fill=dhl_yellow)
+    d.polygon([(0, 405), (W, 245), (W, 0), (0, 0)], fill=dhl_yellow)
+    d.rectangle([0, H - 115, W, H], fill=dhl_yellow)
+    d.rectangle([0, H - 28, W, H - 18], fill=dhl_red)
+    draw_dhl_logo_text(d, 78, 75, large=True)
 
-    # área amarela editorial
-    d.rectangle([0, 0, W, 420], fill=dhl_yellow)
-    d.polygon([(0, 420), (W, 250), (W, 0), (0, 0)], fill=dhl_yellow)
-    d.rectangle([0, H - 100, W, H - 16], fill=dhl_yellow)
-    d.rectangle([0, H - 24, W, H - 16], fill=dhl_red)
-    draw_dhl_logo_text(d, 76, 72, large=True)
-
-    # foto de capa na metade direita/inferior
     first_photo = None
     for _, r in rows:
         first_photo = img_from_row(r)
         if first_photo is not None:
             break
-    image_box = [565, 430, W - 58, H - 120]
+
+    # Imagem grande como elemento editorial.
+    image_box = [560, 430, W - 60, H - 125]
     if first_photo:
         cover_img = cover_resize(first_photo, (image_box[2] - image_box[0], image_box[3] - image_box[1]))
         mask = Image.new("L", (cover_img.width, cover_img.height), 0)
         md = ImageDraw.Draw(mask)
-        md.rounded_rectangle([0, 0, cover_img.width, cover_img.height], radius=20, fill=255)
+        md.rounded_rectangle([0, 0, cover_img.width, cover_img.height], radius=24, fill=255)
         cover.paste(cover_img, (image_box[0], image_box[1]), mask)
-        # véu branco à esquerda para leitura
+        # Sobreposição branca para texto legível.
         overlay = Image.new("RGBA", (W, H), (255, 255, 255, 0))
         od = ImageDraw.Draw(overlay)
-        od.rectangle([0, 390, 705, H - 100], fill=(255, 255, 255, 230))
+        od.rectangle([0, 410, 710, H - 115], fill=(255, 255, 255, 235))
         cover = Image.alpha_composite(cover.convert("RGBA"), overlay).convert("RGB")
         d = ImageDraw.Draw(cover)
     else:
-        d.rounded_rectangle(image_box, radius=20, fill="#F8FAFC", outline=border, width=2)
         placeholder_camera(d, image_box)
 
-    d.text((76, 515), "BOOK VISUAL", font=font_cover, fill=ink)
-    d.text((76, 586), "DE CÂMERAS", font=font_cover, fill=ink)
-    d.text((76, 685), "SISTEMA DE SEGURANÇA ELETRÔNICA", font=font_h2, fill=dhl_red)
-    d.rectangle([76, 752, 160, 758], fill=dhl_yellow)
-    d.text((76, 820), "ACF EXTREMA", font=font_h1, fill=ink)
-    d.text((76, 865), "Extrema/MG", font=font_small, fill=slate)
+    d.text((78, 505), "BOOK VISUAL", font=font_cover, fill=ink)
+    d.text((78, 592), "DE CÂMERAS", font=font_cover, fill=ink)
+    d.text((78, 710), "SISTEMA DE SEGURANÇA ELETRÔNICA", font=font_cover_sub, fill=dhl_red)
+    d.rectangle([78, 778, 170, 786], fill=dhl_yellow)
+    d.text((78, 845), "ACF EXTREMA", font=font_h1, fill=ink)
+    d.text((78, 895), "Extrema/MG", font=font_body, fill=ink)
 
-    total = len(rows)
-    active = sum(1 for _, r in rows if safe_text(r.get("status")).upper() == "ATIVA")
-    inactive = max(total - active, 0)
-    ops = {}
-    nvrs = {}
-    for _, r in rows:
-        ops[safe_text(r.get("operacao"), "Não informado")] = ops.get(safe_text(r.get("operacao"), "Não informado"), 0) + 1
-        nvrs[safe_text(r.get("nvr"), "Não informado")] = nvrs.get(safe_text(r.get("nvr"), "Não informado"), 0) + 1
+    # Métricas de capa em coluna, grandes e legíveis.
+    cy = 1015
+    cover_metrics = [("CÂMERAS CADASTRADAS", total, "▣"), ("GRAVADORES (NVR)", len(nvrs), "▥"), ("DATA DA GERAÇÃO", now, "◷")]
+    for label, value, icon in cover_metrics:
+        d.rounded_rectangle([78, cy, 430, cy + 110], radius=16, fill=white, outline=border, width=2)
+        d.ellipse([105, cy + 24, 163, cy + 82], fill=soft_yellow)
+        d.text((125, cy + 40), icon, font=font_micro_bold, fill=dhl_red)
+        d.text((190, cy + 22), str(value), font=font_h1 if isinstance(value, int) else font_h2, fill=dhl_red)
+        d.text((190, cy + 70), label, font=font_micro_bold, fill=ink)
+        cy += 135
 
-    metric_card(d, 76, 960, 360, 108, "Câmeras cadastradas", total, dhl_red, "▣")
-    metric_card(d, 76, 1096, 360, 108, "Gravadores (NVR)", len(nvrs), dhl_red, "▥")
-    metric_card(d, 76, 1232, 360, 108, "Data da geração", now, dhl_red, "◷")
-    d.text((W // 2 - 155, H - 70), "SEGURANÇA • CONFIANÇA • EXCELÊNCIA", font=font_small_bold, fill=ink)
+    d.text((W // 2 - 185, H - 83), "SEGURANÇA • CONFIANÇA • EXCELÊNCIA", font=font_small_bold, fill=ink)
     pages.append(cover)
 
     # ---------------- Resumo Executivo ----------------
     page = Image.new("RGB", (W, H), "white")
     d = ImageDraw.Draw(page)
     draw_page_frame(d, 2)
-    draw_dhl_logo_text(d, 76, 70, large=False)
-    d.rounded_rectangle([76, 122, 142, 188], radius=12, fill=dhl_yellow)
-    d.text((96, 140), "▤", font=font_h2, fill=dhl_red)
-    d.text((170, 132), "RESUMO EXECUTIVO", font=font_title, fill=ink)
-    d.rectangle([170, 190, W - 92, 196], fill=dhl_yellow)
-    d.rectangle([170, 190, 420, 196], fill=dhl_red)
+    draw_dhl_logo_text(d, 78, 78, large=False)
+    d.rounded_rectangle([78, 142, 150, 214], radius=14, fill=dhl_yellow)
+    d.text((101, 161), "▤", font=font_h2, fill=dhl_red)
+    d.text((185, 150), "RESUMO EXECUTIVO", font=font_title, fill=ink)
+    d.rectangle([185, 212, W - 100, 219], fill=dhl_yellow)
+    d.rectangle([185, 212, 440, 219], fill=dhl_red)
 
     intro = (
         "Este documento apresenta o Book Visual das câmeras do sistema de segurança eletrônica da ACF Extrema. "
         "A revista consolida imagens, localização operacional, gravador, canal, status e informações técnicas essenciais para consulta, auditoria e manutenção."
     )
-    _draw_wrapped(d, intro, (170, 245), font_body, slate, 920, line_spacing=7, max_lines=5)
+    _draw_wrapped(d, intro, (185, 270), font_body, slate, 900, line_spacing=9, max_lines=5)
 
-    # cards executivos 3x2
-    card_w, card_h = 330, 155
-    sx, sy = 106, 430
+    # Cards executivos 3x2 maiores.
+    card_w, card_h = 330, 170
+    sx, sy = 105, 470
     metrics = [
-        ("Câmeras", total, dhl_red, "▣"),
-        ("Gravadores (NVR)", len(nvrs), dhl_red, "▥"),
-        ("Operações", len(ops), dhl_red, "⌖"),
-        ("Câmeras ativas", active, green, "✓"),
-        ("Câmeras inativas", inactive, orange if inactive else green, "!"),
-        ("Pendências reais", sum(1 for _, r in rows if safe_text(r.get("acao_necessaria")).strip() and safe_text(r.get("acao_necessaria")).strip().lower() not in ["não informado", "nao informado", "n/a", "na", "ok", "nenhuma", "sem ação", "sem acao", "-"]), danger, "⚙"),
+        ("Câmeras", total, dhl_red, "▣", soft_yellow),
+        ("Gravadores (NVR)", len(nvrs), dhl_red, "▥", soft_yellow),
+        ("Operações", len(ops), dhl_red, "⌖", soft_yellow),
+        ("Câmeras ativas", active, green, "✓", soft_green),
+        ("Câmeras inativas", inactive, orange if inactive else green, "!", soft_green if inactive == 0 else soft_yellow),
+        ("Pendências reais", pending, danger if pending else green, "⚙", soft_red if pending else soft_green),
     ]
-    for i, (label, val, accent, icon) in enumerate(metrics):
-        x = sx + (i % 3) * (card_w + 30)
-        y = sy + (i // 3) * (card_h + 30)
-        d.rounded_rectangle([x, y, x + card_w, y + card_h], radius=16, fill=white, outline=border, width=2)
-        d.ellipse([x + 28, y + 24, x + 86, y + 82], fill="#FFF3BF" if accent == dhl_red else "#DCFCE7")
-        d.text((x + 49, y + 39), icon, font=font_small_bold, fill=accent)
-        d.text((x + 122, y + 34), str(val), font=font_number, fill=accent)
-        d.text((x + 122, y + 88), safe_text(label).upper(), font=font_micro, fill=ink)
+    for i, (label, val, accent, icon, soft) in enumerate(metrics):
+        x = sx + (i % 3) * (card_w + 38)
+        y = sy + (i // 3) * (card_h + 38)
+        metric_card(d, x, y, card_w, card_h, label, val, accent, icon, soft)
 
-    # Tabela NVR
-    y0 = 865
-    d.text((76, y0), "GRAVADORES (NVR)", font=font_h2, fill=dhl_red)
-    d.rectangle([76, y0 + 36, W - 76, y0 + 40], fill=dhl_red)
-    d.rounded_rectangle([76, y0 + 62, W - 76, y0 + 565], radius=10, fill=white, outline=border, width=2)
+    # Tabela NVR mais compacta, mas legível.
+    y0 = 930
+    d.text((78, y0), "GRAVADORES (NVR)", font=font_h2, fill=dhl_red)
+    d.rectangle([78, y0 + 45, W - 78, y0 + 51], fill=dhl_red)
+    d.rounded_rectangle([78, y0 + 78, W - 78, y0 + 560], radius=12, fill=white, outline=border, width=2)
     headers = ["NVR", "OPERAÇÃO PRINCIPAL", "CÂMERAS"]
-    colx = [100, 650, 1010]
+    colx = [110, 640, 1030]
     for hx, h in zip(colx, headers):
-        d.text((hx, y0 + 84), h, font=font_micro, fill=slate)
-    d.line([90, y0 + 115, W - 90, y0 + 115], fill=border, width=2)
-    y = y0 + 132
-    for nvr, val in sorted(nvrs.items(), key=lambda kv: kv[1], reverse=True)[:14]:
-        # operação mais comum do nvr
+        d.text((hx, y0 + 105), h, font=font_micro_bold, fill=slate)
+    d.line([100, y0 + 140, W - 100, y0 + 140], fill=border, width=2)
+    y = y0 + 160
+    for nvr, val in sorted(nvrs.items(), key=lambda kv: kv[1], reverse=True)[:11]:
         op_main = "-"
         try:
             sub = df_pdf[df_pdf["nvr"].astype(str).str.strip().str.lower() == str(nvr).strip().lower()]
@@ -1146,43 +1166,42 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
                 op_main = sub["operacao"].mode().iloc[0]
         except Exception:
             pass
-        d.text((100, y), safe_text(nvr)[:38], font=font_small, fill=ink)
-        d.text((650, y), safe_text(op_main)[:28], font=font_small, fill=ink)
-        d.text((1030, y), str(val), font=font_small_bold, fill=ink)
-        d.line([90, y + 30, W - 90, y + 30], fill="#EEF2F7", width=1)
-        y += 36
-
+        d.text((110, y), safe_text(nvr)[:34], font=font_small, fill=ink)
+        d.text((640, y), safe_text(op_main)[:26], font=font_small, fill=ink)
+        d.text((1050, y), str(val), font=font_small_bold, fill=ink)
+        d.line([100, y + 36, W - 100, y + 36], fill="#EEF2F7", width=1)
+        y += 42
     pages.append(page)
 
     # ---------------- Índice ----------------
     index_page = Image.new("RGB", (W, H), "white")
     d = ImageDraw.Draw(index_page)
     draw_page_frame(d, 3)
-    d.text((76, 90), "ÍNDICE", font=font_title, fill=dhl_red)
-    d.rectangle([76, 148, 160, 154], fill=dhl_yellow)
-    d.text((76, 210), "CÂMERAS DO BOOK VISUAL", font=font_h2, fill=ink)
+    d.text((78, 96), "ÍNDICE", font=font_title, fill=dhl_red)
+    d.rectangle([78, 160, 168, 168], fill=dhl_yellow)
+    d.text((78, 230), "CÂMERAS DO BOOK VISUAL", font=font_h2, fill=ink)
     if rows:
-        columns = 3
-        col_w = 345
-        start_x = 76
-        start_y = 275
-        row_h = 38
-        max_per_col = 28
+        columns = 2
+        col_w = 500
+        start_x = 78
+        start_y = 305
+        row_h = 46
+        max_per_col = 25
         for i, (_, row) in enumerate(rows[: columns * max_per_col], start=1):
             col = (i - 1) // max_per_col
             r = (i - 1) % max_per_col
-            x = start_x + col * (col_w + 38)
+            x = start_x + col * (col_w + 72)
             y = start_y + r * row_h
             page_ref = i + 3
-            name = safe_text(row.get("nome_camera"), "Câmera sem nome")[:28]
-            d.text((x, y), f"{i:03d}", font=font_micro, fill=dhl_red)
-            d.text((x + 55, y), name, font=font_micro, fill=ink)
-            d.line([x + 230, y + 13, x + 285, y + 13], fill="#CBD5E1", width=1)
-            d.text((x + 294, y), f"{page_ref:02d}", font=font_micro, fill=ink)
+            name = safe_text(row.get("nome_camera"), "Câmera sem nome")[:34]
+            d.text((x, y), f"{i:03d}", font=font_micro_bold, fill=dhl_red)
+            d.text((x + 64, y), name, font=font_micro, fill=ink)
+            d.line([x + 340, y + 14, x + 425, y + 14], fill="#CBD5E1", width=1)
+            d.text((x + 440, y), f"{page_ref:02d}", font=font_micro_bold, fill=ink)
         if len(rows) > columns * max_per_col:
-            d.text((76, H - 150), f"... mais {len(rows) - columns * max_per_col} câmeras nas páginas seguintes", font=font_small, fill=muted)
+            d.text((78, H - 160), f"... mais {len(rows) - columns * max_per_col} câmeras nas páginas seguintes", font=font_small, fill=muted)
     else:
-        d.text((76, 290), "Nenhuma câmera encontrada no filtro selecionado.", font=font_body, fill=muted)
+        d.text((78, 315), "Nenhuma câmera encontrada no filtro selecionado.", font=font_body, fill=muted)
     pages.append(index_page)
 
     # ---------------- Páginas das câmeras ----------------
@@ -1192,21 +1211,20 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
         d = ImageDraw.Draw(page)
         draw_page_frame(d, page_no)
 
-        # Cabeçalho da câmera
-        d.rounded_rectangle([76, 76, 150, 146], radius=12, fill=dhl_red)
-        d.text((96, 95), f"{idx:03d}", font=font_h2, fill=white)
+        # Cabeçalho da câmera mais legível.
+        d.rounded_rectangle([78, 82, 160, 164], radius=14, fill=dhl_red)
+        d.text((101, 106), f"{idx:03d}", font=font_h2, fill=white)
         cam_name = safe_text(row.get("nome_camera"), "Câmera sem nome")
-        _draw_wrapped(d, cam_name.upper(), (178, 82), font_h1, ink, 830, max_lines=1)
+        _draw_wrapped(d, cam_name.upper(), (190, 88), font_h1, ink, 850, max_lines=1)
         meta = f"NVR: {safe_text(row.get('nvr'), 'N/I')}    |    CANAL: {safe_text(row.get('canal'), 'N/I')}    |    STATUS: {safe_text(row.get('status'), 'N/I')}"
-        d.text((178, 128), meta, font=font_small_bold, fill=slate)
-        d.rectangle([76, 170, W - 76, 176], fill=dhl_yellow)
-        d.rectangle([76, 170, 320, 176], fill=dhl_red)
+        d.text((190, 140), meta, font=font_small_bold, fill=slate)
+        d.rectangle([78, 195, W - 78, 203], fill=dhl_yellow)
+        d.rectangle([78, 195, 330, 203], fill=dhl_red)
 
-        # Foto grande
+        # Foto grande com proporção preservada.
         photo = img_from_row(row)
-        img_box = [76, 215, W - 76, 820]
+        img_box = [78, 250, W - 78, 825]
         if photo:
-            # fundo claro e imagem inteira, sem distorcer
             d.rounded_rectangle(img_box, radius=18, fill="#F3F4F6", outline=border, width=2)
             img = contain_resize(photo, (img_box[2] - img_box[0] - 8, img_box[3] - img_box[1] - 8), bg="#F3F4F6")
             mask = Image.new("L", img.size, 0)
@@ -1216,13 +1234,11 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
         else:
             placeholder_camera(d, img_box)
 
-        # Título de seção
-        d.text((76, 875), "INFORMAÇÕES DA CÂMERA", font=font_h2, fill=dhl_red)
-        d.rectangle([76, 915, W - 76, 920], fill=dhl_red)
-
-        # Ficha técnica em duas colunas
-        left_x, right_x = 105, 650
-        y = 955
+        # Ficha técnica.
+        d.text((78, 890), "INFORMAÇÕES DA CÂMERA", font=font_h2, fill=dhl_red)
+        d.rectangle([78, 935, W - 78, 941], fill=dhl_red)
+        left_x, right_x = 108, 650
+        y = 985
         left_items = [
             ("Número", row.get("numero")),
             ("Nome da câmera", row.get("nome_camera")),
@@ -1237,25 +1253,25 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
             ("IP NVR", row.get("ip_nvr")),
             ("Canal", row.get("canal")),
             ("Rack", row.get("rack")),
-            ("Dias de gravação", row.get("dias_gravacao")),
+            ("Dias gravação", row.get("dias_gravacao")),
         ]
         for (lab, val), (lab2, val2) in zip(left_items, right_items):
             info_row(d, left_x, y, lab, val, w=480)
             info_row(d, right_x, y, lab2, val2, w=480)
-            y += 58
+            y += 64
 
-        # Status e qualidade com destaque
+        # Badges.
         status = safe_text(row.get("status"), "Não informado")
         qualidade = safe_text(row.get("qualidade_gravacao"), "Não informado")
-        draw_badge(d, left_x, y + 8, status, status_color(status))
-        draw_badge(d, left_x + 210, y + 8, qualidade, status_color(qualidade))
+        draw_badge(d, left_x, y + 10, status, status_color(status))
+        draw_badge(d, left_x + 225, y + 10, qualidade, status_color(qualidade))
 
-        # Observações
-        obs_y = 1395
-        d.rounded_rectangle([76, obs_y, W - 76, H - 118], radius=14, fill=light, outline=border, width=2)
-        d.text((105, obs_y + 24), "Observações / Ação necessária", font=font_small_bold, fill=ink)
+        # Observações.
+        obs_y = 1410
+        d.rounded_rectangle([78, obs_y, W - 78, H - 125], radius=16, fill=light, outline=border, width=2)
+        d.text((108, obs_y + 28), "Observações / Ação necessária", font=font_small_bold, fill=ink)
         obs = safe_text(row.get("acao_necessaria")) or safe_text(row.get("observacao")) or "Sem observação registrada."
-        _draw_wrapped(d, obs, (105, obs_y + 62), font_small, slate, W - 220, line_spacing=5, max_lines=5)
+        _draw_wrapped(d, obs, (108, obs_y + 72), font_small, slate, W - 230, line_spacing=7, max_lines=4)
 
         pages.append(page)
         page_no += 1
@@ -1264,12 +1280,12 @@ def gerar_pdf_book_cameras(pdf_df, subtitulo="Book Visual de Câmeras"):
         page = Image.new("RGB", (W, H), "white")
         d = ImageDraw.Draw(page)
         draw_page_frame(d, 4)
-        d.text((76, 100), "Nenhuma câmera encontrada", font=font_title, fill=ink)
-        d.text((76, 165), "Ajuste os filtros do Book Visual e gere novamente a revista PDF.", font=font_body, fill=muted)
+        d.text((78, 110), "Nenhuma câmera encontrada", font=font_title, fill=ink)
+        d.text((78, 180), "Ajuste os filtros do Book Visual e gere novamente a revista PDF.", font=font_body, fill=muted)
         pages.append(page)
 
     out = BytesIO()
-    pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=170.0, quality=95)
+    pages[0].save(out, format="PDF", save_all=True, append_images=pages[1:], resolution=150.0, quality=95)
     out.seek(0)
     return out.getvalue()
 
