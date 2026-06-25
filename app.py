@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-APP_VERSION = "v27.0 • manutenção com filtro NVR e finalização"
+APP_VERSION = "v28.0 • dashboard com chamados"
 
 # =====================================================
 # CONEXÃO COM NEON
@@ -835,6 +835,42 @@ def calcular_metricas(df):
     }
 
 
+
+
+def calcular_metricas_chamados(manut_df):
+    """Métricas do workflow de manutenção.
+
+    O Dashboard deve usar chamados para gestão de tratativas.
+    Indicadores técnicos permanecem separados: ativas, inativas, falhas e sem gravação.
+    """
+    base = manut_df.copy() if manut_df is not None else pd.DataFrame()
+    if base.empty or "status" not in base.columns:
+        return {
+            "total": 0,
+            "abertos": 0,
+            "em_andamento": 0,
+            "concluidos": 0,
+            "cancelados": 0,
+            "criticos": 0,
+            "atrasados": 0,
+        }
+
+    status = base["status"].astype(str).str.upper().str.strip()
+    prioridade = base["prioridade"].astype(str).str.upper().str.strip() if "prioridade" in base.columns else pd.Series([""] * len(base))
+    aberto_mask = status.isin(["ABERTO", "EM ANDAMENTO"])
+    prazo = pd.to_datetime(base.get("prazo"), errors="coerce")
+    hoje = pd.Timestamp(br_now().date())
+
+    return {
+        "total": int(len(base)),
+        "abertos": int((status == "ABERTO").sum()),
+        "em_andamento": int((status == "EM ANDAMENTO").sum()),
+        "concluidos": int((status == "CONCLUÍDO").sum()),
+        "cancelados": int((status == "CANCELADO").sum()),
+        "criticos": int((aberto_mask & prioridade.isin(["ALTA", "CRÍTICA", "CRITICA"])).sum()),
+        "atrasados": int((aberto_mask & prazo.notna() & (prazo < hoje)).sum()),
+    }
+
 def status_class(status):
     s = safe_text(status, "").upper()
     if s == "ATIVA":
@@ -1479,6 +1515,8 @@ df = carregar_cameras()
 df_norm_all = normalizar_base(df)
 df_norm = cameras_unicas_por_numero(df)
 metricas = calcular_metricas(df)
+manutencoes_global = carregar_manutencoes()
+metricas_chamados = calcular_metricas_chamados(manutencoes_global)
 
 # =====================================================
 # SIDEBAR PREMIUM
@@ -1529,8 +1567,8 @@ st.sidebar.markdown(
     <div class="mini-value">{metricas['inativas']}</div>
 </div>
 <div class="sidebar-mini-card">
-    <div class="mini-title">Pendências</div>
-    <div class="mini-value">{metricas['pendencias']}</div>
+    <div class="mini-title">Chamados abertos</div>
+    <div class="mini-value">{metricas_chamados['abertos'] + metricas_chamados['em_andamento']}</div>
 </div>
 <div class="sidebar-version">Versão {APP_VERSION}</div>
 """,
@@ -1572,7 +1610,7 @@ if menu == "📊 Dashboard Executivo":
     c3.markdown(kpi_card("Ativas", metricas["ativas"], "em operação", "success"), unsafe_allow_html=True)
     c4.markdown(kpi_card("Inativas", metricas["inativas"], "fora de operação", "warning" if metricas["inativas"] > 0 else "success"), unsafe_allow_html=True)
     c5.markdown(kpi_card("Sem gravação", metricas["sem_gravacao"], "falha crítica", "danger" if metricas["sem_gravacao"] > 0 else "success"), unsafe_allow_html=True)
-    c6.markdown(kpi_card("Pendências reais", metricas["pendencias"], "falha/manutenção/ação", "danger" if metricas["pendencias"] > 0 else "success"), unsafe_allow_html=True)
+    c6.markdown(kpi_card("Chamados abertos", metricas_chamados["abertos"] + metricas_chamados["em_andamento"], "workflow manutenção", "danger" if (metricas_chamados["abertos"] + metricas_chamados["em_andamento"]) > 0 else "success"), unsafe_allow_html=True)
 
     st.write("")
 
@@ -1585,10 +1623,10 @@ if menu == "📊 Dashboard Executivo":
             inativas=("is_inativa", "sum"),
             falhas=("is_falha", "sum"),
             sem_gravacao=("is_sem_gravacao", "sum"),
-            pendencias=("is_critica", "sum"),
+            manutencao=("is_manutencao", "sum"),
         ).reset_index()
         op["disponibilidade"] = (op["ativas"] / op["total"] * 100).round(1)
-        op["risco"] = op["falhas"] + op["sem_gravacao"] + op["pendencias"] + op["inativas"]
+        op["risco"] = op["falhas"] + op["sem_gravacao"] + op["manutencao"] + op["inativas"]
         op["risco_nivel"] = op["risco"].apply(lambda v: "Alto" if v >= 4 else "Médio" if v >= 1 else "Baixo")
 
         registros_totais = len(df_norm_all)
@@ -1670,12 +1708,12 @@ if menu == "📊 Dashboard Executivo":
 
         col5, col6 = st.columns([1.1, 1])
         with col5:
-            st.markdown('<div class="panel"><div class="panel-title">Mapa de Criticidade por Operação</div><div class="panel-subtitle">Risco operacional consolidado: falhas, sem gravação, manutenção, ações reais e inativas.</div>', unsafe_allow_html=True)
-            risco = op.sort_values("risco", ascending=False)[["operacao", "total", "ativas", "inativas", "falhas", "sem_gravacao", "pendencias", "disponibilidade", "risco", "risco_nivel"]]
+            st.markdown('<div class="panel"><div class="panel-title">Mapa de Criticidade Técnica por Operação</div><div class="panel-subtitle">Risco técnico consolidado: falhas, sem gravação, manutenção e inativas. Chamados são gerenciados no módulo Manutenção.</div>', unsafe_allow_html=True)
+            risco = op.sort_values("risco", ascending=False)[["operacao", "total", "ativas", "inativas", "falhas", "sem_gravacao", "manutencao", "disponibilidade", "risco", "risco_nivel"]]
             risco = risco.rename(columns={
                 "operacao": "Operação", "total": "Total", "ativas": "Ativas", "inativas": "Inativas",
-                "falhas": "Falhas", "sem_gravacao": "Sem gravação", "pendencias": "Pendências reais",
-                "disponibilidade": "Disponibilidade %", "risco": "Score", "risco_nivel": "Risco"
+                "falhas": "Falhas", "sem_gravacao": "Sem gravação", "manutencao": "Manutenção",
+                "disponibilidade": "Disponibilidade %", "risco": "Score técnico", "risco_nivel": "Risco técnico"
             })
             st.dataframe(risco, use_container_width=True, hide_index=True)
             st.markdown("</div>", unsafe_allow_html=True)
@@ -1718,13 +1756,24 @@ if menu == "📊 Dashboard Executivo":
                 st.dataframe(tabela_retencao, use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-        pend = df_norm[df_norm["is_critica"] == True].copy()
-        pend = pend[["id", "numero", "operacao", "nome_camera", "ip_camera", "nvr", "status", "qualidade_gravacao", "acao_necessaria"]].head(20)
-        st.markdown('<div class="panel"><div class="panel-title">Pendências Críticas Reais</div><div class="panel-subtitle">Exibe somente falha, sem gravação, manutenção, qualidade ruim/sem imagem ou ação necessária relevante. Não considera “Não informado” como pendência.</div>', unsafe_allow_html=True)
-        if pend.empty:
-            st.success("Nenhuma pendência crítica identificada.")
+        st.markdown('<div class="panel"><div class="panel-title">Centro de Tratativas de Manutenção</div><div class="panel-subtitle">Chamados registrados no módulo Manutenção. O dashboard mostra o workflow de tratativas, separado dos indicadores técnicos.</div>', unsafe_allow_html=True)
+        manut_dash = manutencoes_global.copy() if not manutencoes_global.empty else pd.DataFrame()
+        if manut_dash.empty:
+            st.success("Nenhum chamado de manutenção registrado.")
         else:
-            st.dataframe(pend, use_container_width=True, hide_index=True)
+            status_dash = manut_dash["status"].astype(str).str.upper().str.strip()
+            abertos_dash = manut_dash[status_dash.isin(["ABERTO", "EM ANDAMENTO"])].copy()
+            col_ch1, col_ch2, col_ch3, col_ch4 = st.columns(4)
+            col_ch1.markdown(kpi_card("Abertos", metricas_chamados["abertos"], "aguardando início", "danger" if metricas_chamados["abertos"] > 0 else "success"), unsafe_allow_html=True)
+            col_ch2.markdown(kpi_card("Em andamento", metricas_chamados["em_andamento"], "em tratativa", "warning" if metricas_chamados["em_andamento"] > 0 else "success"), unsafe_allow_html=True)
+            col_ch3.markdown(kpi_card("Críticos", metricas_chamados["criticos"], "alta/crítica", "danger" if metricas_chamados["criticos"] > 0 else "success"), unsafe_allow_html=True)
+            col_ch4.markdown(kpi_card("Atrasados", metricas_chamados["atrasados"], "prazo vencido", "danger" if metricas_chamados["atrasados"] > 0 else "success"), unsafe_allow_html=True)
+            st.write("")
+            if abertos_dash.empty:
+                st.success("Nenhum chamado aberto ou em andamento.")
+            else:
+                cols_chamados = [c for c in ["id", "numero", "operacao", "nome_camera", "nvr", "canal", "tipo", "prioridade", "responsavel", "status", "prazo", "descricao"] if c in abertos_dash.columns]
+                st.dataframe(abertos_dash[cols_chamados].head(20), use_container_width=True, hide_index=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
 # =====================================================
